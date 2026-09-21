@@ -14,6 +14,7 @@ Docker Compose VM. Architecture decisions live in [`docs/adr/`](docs/adr/).
 flowchart LR
     subgraph external["External"]
         claude["Claude API"]
+        fx["FX rate service"]
     end
 
     subgraph vm["Single VM — Docker Compose"]
@@ -37,7 +38,8 @@ flowchart LR
         end
     end
 
-    kafka -- "support.ticket.created / resolved" --> bridge
+    kafka -- "support.ticket.created" --> bridge
+    notifier -- "support.ticket.resolved" --> kafka
     bridge -- "REST v2: publish message" --> camunda
     classifier -- "REST v2: long-poll jobs" --> camunda
     classifier --> claude
@@ -49,6 +51,7 @@ flowchart LR
     connectors --> camunda
     prom --> camunda
     graf --> prom
+    connectors -- "REST connector" --> fx
 ```
 
 All clients use the **Orchestration Cluster REST API (v2)** with Basic auth; the gRPC port is not
@@ -73,8 +76,8 @@ docs/               Design, ops guides, runbooks, analytics, ADRs
 
 | # | Phase | Status |
 |---|-------|--------|
-| 0 | Scope & repo | in progress |
-| 1 | Platform | planned |
+| 0 | Scope & repo | done |
+| 1 | Platform | in progress |
 | 2 | Process v1 happy path | planned |
 | 3 | DMN + FEEL | planned |
 | 4 | Integrations | planned |
