@@ -1,0 +1,27 @@
+.DS_Store
+.env
+
+# Go
+*.exe
+*.test
+*.out
+/bin/
+vendor/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+.claude/settings.local.json
+*.log
