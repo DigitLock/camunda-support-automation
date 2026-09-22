@@ -1,0 +1,118 @@
+# Core stack: Orchestration Cluster + Connectors + Elasticsearch as secondary storage.
+# Derived from the official docker-compose-8.9 distribution (camunda/camunda-distributions,
+# commit bf243ed): service wiring and healthchecks from docker-compose.yaml (lightweight) and
+# docker-compose-full.yaml (Elasticsearch service, depends_on). Authentication: Basic auth on a
+# protected API with authorizations enabled; passwords come from infra/.env (git-ignored) and
+# are passed explicitly per service — Compose fails fast if they are missing.
+#
+# Deviations from the reference, on purpose:
+# - No ports published except orchestration 8080 (UI + REST v2). gRPC 26500 and management 9600
+#   stay internal; healthchecks reach 9600 inside the container.
+# - No camunda-data-init service and no camunda-data volume: both exist only for the file-based
+#   H2 database of the lightweight setup, which Elasticsearch secondary storage replaces.
+# - No env_file: the mounted application.yaml has no ${...} placeholders, and injecting the
+#   whole .env into containers would leak unrelated variables.
+# - restart/mem_limit tuned for a dedicated VM instead of a developer laptop.
+
+services:
+  orchestration: # Consolidated Zeebe + Operate + Tasklist
+    image: camunda/camunda:${CAMUNDA_VERSION}
+    container_name: orchestration
+    ports:
+      - "8080:8080"
+    environment:
+      JAVA_TOOL_OPTIONS: "-Xms2g -Xmx2g"
+      CAMUNDA_ADMIN_PASSWORD: ${CAMUNDA_ADMIN_PASSWORD:?set CAMUNDA_ADMIN_PASSWORD in infra/.env}
+      CAMUNDA_CONNECTORS_PASSWORD: ${CAMUNDA_CONNECTORS_PASSWORD:?set CAMUNDA_CONNECTORS_PASSWORD in infra/.env}
+    mem_limit: 4g
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9600 && echo -e \"GET /actuator/health/status HTTP/1.1\r\nHost: localhost\r\n\r\n\" >&3 && head -n 1 <&3'"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    volumes:
+      - camunda:/usr/local/camunda/data
+      - ./config/orchestration/application.yaml:/usr/local/camunda/config/application.yaml
+    networks:
+      - camunda
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+
+  connectors:
+    image: camunda/connectors-bundle:${CAMUNDA_CONNECTORS_VERSION}
+    container_name: connectors
+    environment:
+      CAMUNDA_CLIENT_AUTH_METHOD: basic
+      CAMUNDA_CLIENT_AUTH_USERNAME: connectors
+      CAMUNDA_CLIENT_AUTH_PASSWORD: ${CAMUNDA_CONNECTORS_PASSWORD:?set CAMUNDA_CONNECTORS_PASSWORD in infra/.env}
+    mem_limit: 1536m
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8080/actuator/health/readiness"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    configs:
+      - source: connectors-config
+        target: application.yaml
+    networks:
+      - camunda
+    depends_on:
+      orchestration:
+        # Wait for orchestration to be healthy, otherwise we get noisy connection errors
+        condition: service_healthy
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${ELASTIC_VERSION}
+    container_name: elasticsearch
+    environment:
+      - bootstrap.memory_lock=true
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms2g -Xmx2g"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    mem_limit: 4g
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cat/health?h=status | grep -Eq 'green|yellow'"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    volumes:
+      - elastic:/usr/share/elasticsearch/data
+    networks:
+      - camunda
+
+volumes:
+  camunda:
+  elastic:
+
+networks:
+  camunda:
+    name: camunda
+
+configs:
+  connectors-config:
+    content: |
+      camunda:
+        client:
+          mode: self-managed
+          grpc-address: http://orchestration:26500
+          rest-address: http://orchestration:8080
+      management:
+        endpoints:
+          web:
+            exposure:
+              include: health,configprops
+        endpoint:
+          health:
+            probes:
+              enabled: true

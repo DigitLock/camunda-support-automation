@@ -1,0 +1,45 @@
+# Orchestration Cluster configuration with Elasticsearch as secondary storage.
+# Structure from configuration/application-opensearch.yaml of the official docker-compose-8.9
+# distribution (commit bf243ed), with the secondary-storage type switched to elasticsearch and
+# the URL pointing at the elasticsearch Compose service (as in .orchestration/application.yaml).
+# Authentication: Basic auth on a protected API with authorizations enabled. Passwords are
+# not stored here — Spring resolves the ${...} placeholders from container environment
+# variables, which Compose passes in from infra/.env (git-ignored).
+camunda:
+  backup:
+    webapps:
+      enabled: false
+  system:
+    cpu-thread-count: "3"
+    io-thread-count: "3"
+  security:
+    authentication:
+      method: "basic"
+      unprotected-api: false
+    authorizations:
+      enabled: true
+    initialization:
+      users:
+        - username: "admin"
+          password: "${CAMUNDA_ADMIN_PASSWORD}"
+          name: "Admin"
+          email: "admin@example.com"
+        - username: "connectors"
+          password: "${CAMUNDA_CONNECTORS_PASSWORD}"
+          name: "Connectors"
+          email: "connectors@example.com"
+      defaultRoles:
+        admin:
+          users:
+            - "admin"
+        connectors:
+          users:
+            - "connectors"
+  data:
+    secondary-storage:
+      type: elasticsearch
+      elasticsearch:
+        url: http://elasticsearch:9200
+        number-of-replicas: 0
+  mcp:
+    enabled: true

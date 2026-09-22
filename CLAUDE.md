@@ -25,6 +25,8 @@ private context, internal IPs or hostnames.
 5. **Phases are sequential** (see README). Do not start the next phase or add scope that is not
    in the current phase. Park ideas in `docs/backlog.md`.
 6. **Pinned versions only.** No `latest` tags. Image tag and digest come from `.env`.
+7. **Never create or edit .bpmn, .dmn or .form files.** The owner models them in Camunda
+   Modeler; you may read them and reference element IDs.
 
 ## Camunda specifics (8.9)
 

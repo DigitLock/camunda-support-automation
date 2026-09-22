@@ -2,6 +2,9 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-21
+- **Amended 2026-09-21:** pins follow the official `docker-compose-8.9` distribution
+  (camunda/camunda-distributions, commit bf243ed): Camunda 8.9.21, Connectors 8.9.12,
+  Elasticsearch 8.19.11.
 
 ## Context
 

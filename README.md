@@ -5,8 +5,7 @@ Status: in progress — see the phase table.
 A customer support automation stand on **Camunda 8.9 Self-Managed**: a BPMN ticket process with
 DMN/FEEL routing, an LLM classifier with guardrails (Claude API, JSON Schema validation, keyword
 fallback), REST and Kafka integrations, and an operations layer — install, monitoring, backup,
-instance migration and a rehearsed minor upgrade. The stand comes up from this repository on a single Docker Compose VM on a single
-Docker Compose VM. Architecture decisions live in [`docs/adr/`](docs/adr/).
+instance migration and a rehearsed minor upgrade. The stand comes up from this repository on a single Docker Compose VM. Architecture decisions live in [`docs/adr/`](docs/adr/).
 
 ## Architecture
 
@@ -19,7 +18,7 @@ flowchart LR
 
     subgraph vm["Single VM — Docker Compose"]
         subgraph core["core profile"]
-            camunda["Orchestration Cluster<br/>(camunda/camunda 8.9)<br/>Zeebe + Operate + Tasklist + Identity"]
+            camunda["Orchestration Cluster<br/>(camunda/camunda 8.9)<br/>Zeebe + Operate + Tasklist + Admin"]
             connectors["Connectors 8.9"]
             es[("Elasticsearch<br/>secondary storage")]
         end
@@ -90,11 +89,17 @@ docs/               Design, ops guides, runbooks, analytics, ADRs
 
 One line per day: date — phase — done / broken / next.
 
-- 2026-09-21 — Phase 0 — repo scaffolded, ADRs 001–005 accepted / — / start Phase 1 platform setup
+- 2026-09-21 — Phase 0 done, Phase 1 nearly done — VM + Docker; core stack (Camunda 8.9.21 / Connectors 8.9.12 / ES 8.19.11) up in under a minute; protected API with Basic auth and authorizations; smoke test via REST + Tasklist + Operate; install guide / ES yellow on single node (replicas 0); sysctl override lowered the Debian 13 default (removed); VM time zone (UTC); config edited but not synced before restart (make deploy) / install-from-scratch run against docs/ops/install.md, then Phase 2
+- 2026-09-22 — Phase 1 done — install-from-scratch run against docs/ops/install.md passed in <N> min; one doc gap (ssh config block was not a command) fixed / stand broke overnight before the run was finished (restarted from the clean snapshot) / Phase 2: process v1 happy path
 
 ## License note
 
 The stand runs **without a Camunda license key**, i.e. as non-production use — the components show
-a "Non-Production License" banner, with no functional limits. This project demonstrates
-production-grade practices (pinned versions, protected API, backups, monitoring, upgrade
-procedure) on a single-node deployment; it is not a production deployment.
+"Non-production license" and "Non-commercial license" badges, with no functional limits. Applying for Camunda's
+**non-commercial license** is planned after publication (see `docs/backlog.md`); until then the
+banner stays visible in screenshots. This project demonstrates production-grade practices
+(pinned versions, protected API, backups, monitoring, upgrade procedure) on a single-node
+deployment; it is not a production deployment.
+
+
+To bring the stand up from an empty VM, follow [`docs/ops/install.md`](docs/ops/install.md).

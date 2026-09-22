@@ -13,6 +13,10 @@ classDiagram
         +string language
         +string intent
         +string sentiment
+        +decimal confidence
+        +string priority
+        +datetime slaDueAt
+        +string assignedTeam
         +TicketStatus status
         +datetime createdAt
     }
@@ -20,6 +24,7 @@ classDiagram
         +string id
         +string name
         +string email
+        +string tier
     }
     class Booking {
         +string id
@@ -27,10 +32,12 @@ classDiagram
         +string status
         +datetime travelDate
         +decimal amount
+        +string currency
     }
     class Refund {
         +string id
         +decimal amount
+        +string currency
         +string status
         +datetime requestedAt
     }
@@ -42,7 +49,7 @@ classDiagram
 
     Customer "1" --> "*" Ticket : raises
     Customer "1" --> "*" Booking : owns
-    Ticket "0..1" --> "1" Booking : concerns
+    Ticket "*" --> "0..1" Booking : concerns
     Booking "1" --> "0..*" Refund : may trigger
     Agent "0..1" --> "*" Ticket : handles
 ```
@@ -58,9 +65,13 @@ stateDiagram-v2
     NEW --> CLASSIFIED : classifier or fallback assigns intent
     CLASSIFIED --> ROUTED : DMN routing decision
     ROUTED --> IN_PROGRESS : work started
+    ROUTED --> ESCALATED : SLA timer
     IN_PROGRESS --> RESOLVED : automated handling succeeded
     IN_PROGRESS --> ESCALATED : guardrail or handling failure, human takes over
-    RESOLVED --> CLOSED
-    ESCALATED --> CLOSED
+    ESCALATED --> RESOLVED : agent completes the task
+    RESOLVED --> CLOSED : support.ticket.resolved published
     CLOSED --> [*]
 ```
+
+`Ticket.id` is the message correlation key and the idempotency key for `support.ticket.created`.
+Ticket status is business state derived from the process position, not stored separately.

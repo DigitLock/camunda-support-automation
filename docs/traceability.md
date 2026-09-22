@@ -12,5 +12,5 @@ filled in as the files appear; a dash means the phase has not produced them yet.
 | Call-flow modelling in BPMN | — |
 | Incident handling in Operate | — |
 | REST/JSON/Kafka integrations | — |
-| Self-managed operations (install, monitoring, backup, upgrade) | — |
+| Self-managed operations (install, monitoring, backup, upgrade) | `docs/ops/install.md`, `infra/docker-compose.yml`, `infra/config/orchestration/application.yaml`, `docs/assets/phase-1/operate-smoke.png` |
 | SQL process analytics | — |
