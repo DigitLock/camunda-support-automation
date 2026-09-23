@@ -1,6 +1,16 @@
 # Camunda Support Automation
 
-Status: in progress — see the phase table.
+Status: Phase 2 done — process `support-request-v1` at version 3 (v1 happy path; v2 misrouted
+at a single gateway; v3 with a separate needs-review gateway, see
+[docs/design/process-v1.md](docs/design/process-v1.md), D2-7), two linked Camunda forms, Python
+stub worker, e2e script — 5/5 tickets pass in unattended and manual modes. Screenshots in
+[docs/assets/phase-2/](docs/assets/phase-2/): `modeler-support-request-v3.png`,
+`operate-process-v1.png`, `operate-process-v3.png`, `operate-t0001-happy-path.png`,
+`operate-t0004-waiting-review.png`, `operate-t0004-review-loop.png`,
+`operate-t0004-v2-wrong-branch.png`, `tasklist-open-tasks.png`,
+`tasklist-review-classification-form.png`, and from the manual run
+`tasklist-handle-by-agent-form.png` and `operate-completed-instances.png` (the
+handle-by-agent form in Tasklist and the completed instances list in Operate).
 
 A customer support automation stand on **Camunda 8.9 Self-Managed**: a BPMN ticket process with
 DMN/FEEL routing, an LLM classifier with guardrails (Claude API, JSON Schema validation, keyword
@@ -76,8 +86,8 @@ docs/               Design, ops guides, runbooks, analytics, ADRs
 | # | Phase | Status |
 |---|-------|--------|
 | 0 | Scope & repo | done |
-| 1 | Platform | in progress |
-| 2 | Process v1 happy path | planned |
+| 1 | Platform | done |
+| 2 | Process v1 happy path | done |
 | 3 | DMN + FEEL | planned |
 | 4 | Integrations | planned |
 | 5 | LLM classifier with guardrails | planned |

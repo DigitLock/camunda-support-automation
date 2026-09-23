@@ -1,0 +1,63 @@
+{
+  "components": [
+    {
+      "text": "Classifier suggested **{{intent}}** (confidence {{confidence}})",
+      "type": "text",
+      "layout": {
+        "row": "Row_1hnrhlg",
+        "columns": null
+      },
+      "id": "Field_0e87ftu"
+    },
+    {
+      "label": "Intent",
+      "values": [
+        {
+          "label": "Change booking",
+          "value": "change_booking"
+        },
+        {
+          "label": "Cancel & refund",
+          "value": "cancel_refund"
+        },
+        {
+          "label": "Question",
+          "value": "question"
+        },
+        {
+          "label": "Other",
+          "value": "other"
+        }
+      ],
+      "type": "select",
+      "layout": {
+        "row": "Row_15muzul",
+        "columns": null
+      },
+      "id": "Field_1evrjd3",
+      "key": "intent",
+      "validate": {
+        "required": true
+      }
+    },
+    {
+      "label": "Escalate to agent",
+      "type": "checkbox",
+      "layout": {
+        "row": "Row_0kfvofh",
+        "columns": null
+      },
+      "id": "Field_1dephsh",
+      "key": "escalate"
+    }
+  ],
+  "type": "default",
+  "id": "review-classification",
+  "executionPlatform": "Camunda Cloud",
+  "executionPlatformVersion": "8.9.0",
+  "exporter": {
+    "name": "Camunda Modeler",
+    "version": "5.51.1"
+  },
+  "schemaVersion": 19
+}

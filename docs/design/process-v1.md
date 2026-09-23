@@ -1,0 +1,223 @@
+# Process design: Customer Support Request Handling v1
+
+**Phase:** 2 (happy path)
+**Status:** approved 2026-09-22
+**Model file:** `processes/support-request-v1.bpmn`
+**Process ID:** `support-request-v1`
+
+## 1. Scope
+
+Phase 2 delivers the process skeleton end to end: a message starts an instance, a stub worker completes every service task with deterministic values, user tasks are completed through the REST API, and five tickets travel five distinct branches to a resolved end state.
+
+Deliberately out of Phase 2 (each has a hook below):
+
+| Deferred to | What |
+|---|---|
+| Phase 3 | `route-ticket` becomes a DMN business rule task; `customerTier` drives `priority` |
+| Phase 4 | Integration job types move to Go workers; `booking.*` call external services |
+| Phase 5 | `ticket.classify` and `ticket.notify` call the LLM; `resolution` becomes an LLM input |
+
+## 2. Flow
+
+```mermaid
+flowchart LR
+    S([start-ticket-created<br/>msg: ticket.created]) --> C[classify-ticket<br/>ticket.classify]
+    C --> R[route-ticket<br/>ticket.route]
+    R --> NR{gw-needs-review}
+    NR -- needsReview --> RV[/review-classification<br/>user task/]
+    NR -- default --> G{gw-intent}
+    RV --> GR{gw-review-exit}
+    GR -- escalate --> A
+    GR -- default --> G
+    G -- change_booking --> CB[change-booking<br/>booking.change]
+    G -- cancel_refund --> CR[cancel-refund<br/>booking.cancel]
+    G -- question --> AQ[answer-question<br/>ticket.answer]
+    G -- default --> A[/handle-by-agent<br/>user task/]
+    CB --> N[notify-customer<br/>ticket.notify]
+    CR --> N
+    AQ --> N
+    A --> N
+    N --> E([end-resolved])
+```
+
+The four resolving branches feed `notify-customer` directly (multiple incoming sequence flows on a task, no join gateway — paths are exclusive).
+
+## 3. Elements
+
+| ID | BPMN type | Name | Implementation |
+|---|---|---|---|
+| `start-ticket-created` | Message start event | Ticket created | message `ticket.created` |
+| `classify-ticket` | Service task | Classify ticket | job type `ticket.classify` |
+| `route-ticket` | Service task | Route ticket | job type `ticket.route` |
+| `gw-needs-review` | Exclusive gateway | Needs review? | conditions in §4 |
+| `gw-intent` | Exclusive gateway | Intent? | conditions in §4 |
+| `review-classification` | User task (Camunda user task) | Review classification | linked form `review-classification`; output `needsReview = false` |
+| `gw-review-exit` | Exclusive gateway | Escalate? | conditions in §4 |
+| `change-booking` | Service task | Change booking | job type `booking.change`; output `resolution = "booking_changed"` |
+| `cancel-refund` | Service task | Cancel and refund | job type `booking.cancel`; output `resolution = "refund_issued"` |
+| `answer-question` | Service task | Answer question | job type `ticket.answer`; output `resolution = "answered"` |
+| `handle-by-agent` | User task (Camunda user task) | Handle by agent | linked form `handle-by-agent`; output `resolution = "agent_handled"` |
+| `notify-customer` | Service task | Notify customer | job type `ticket.notify` |
+| `end-resolved` | End event | Resolved | — |
+
+Conventions:
+
+- Element IDs: kebab-case, `<object>-<verb>` or `gw-<question>`.
+- Job types: `<domain>.<verb>`; domains are `ticket` and `booking`.
+- `resolution` is set by an **output mapping** on the branch task (FEEL literal), not by the worker. Workers stay unaware of process routing; the model documents the outcome.
+- User tasks are Camunda user tasks (Tasklist-managed), not job-worker user tasks. Forms are linked by form ID (`zeebe:formDefinition formId`), deployed as separate `.form` resources.
+- Sequence flow IDs from gateways are snake_case and equal the `intent` value they select (`change_booking`, `cancel_refund`, `question`); element IDs stay kebab-case.
+
+## 4. Gateway conditions
+
+Every gateway has mutually exclusive conditions plus a default flow, so branch selection never depends on the order in which sequence flows are defined (see D2-7).
+
+### `gw-needs-review`
+
+| # | Target | Condition (FEEL) |
+|---|---|---|
+| 1 | `review-classification` | `needsReview = true` |
+| 2 | `gw-intent` | default flow |
+
+### `gw-intent`
+
+| # | Target | Condition (FEEL) |
+|---|---|---|
+| 1 | `change-booking` | `intent = "change_booking"` |
+| 2 | `cancel-refund` | `intent = "cancel_refund"` |
+| 3 | `answer-question` | `intent = "question"` |
+| 4 | `handle-by-agent` | default flow (covers `intent = "other"` and anything unexpected) |
+
+### `gw-review-exit`
+
+| # | Target | Condition (FEEL) |
+|---|---|---|
+| 1 | `handle-by-agent` | `escalate = true` |
+| 2 | `gw-intent` | default flow |
+
+The return from `gw-review-exit` enters `gw-intent` directly, after `gw-needs-review`, so a reviewed ticket cannot loop back into review. `review-classification` also sets `needsReview = false` via output mapping to record that the review happened.
+
+## 5. Variables
+
+### 5.1 Start (message payload)
+
+| Name | Type | Example | Notes |
+|---|---|---|---|
+| `ticketId` | string | `T-1001` | correlation key |
+| `customerId` | string | `C-42` | |
+| `customerTier` | string | `standard` | `standard` \| `premium` |
+| `subject` | string | `Change my flight date` | |
+| `body` | string | free text | |
+| `language` | string | `en` | ISO 639-1 |
+| `bookingRef` | string \| null | `BK-77` | null for non-booking tickets |
+| `bookingValue` | number \| null | `540.00` | |
+| `currency` | string \| null | `EUR` | ISO 4217 |
+
+### 5.2 Produced by `ticket.classify`
+
+| Name | Type | Values / rule |
+|---|---|---|
+| `intent` | string | `change_booking` \| `cancel_refund` \| `question` \| `other` |
+| `sentiment` | string | `positive` \| `neutral` \| `negative` |
+| `confidence` | number | 0.0–1.0 |
+| `needsReview` | boolean | `confidence < 0.7` |
+
+### 5.3 Produced by `ticket.route`
+
+| Name | Type | Phase 2 stub rule |
+|---|---|---|
+| `team` | string | by intent: `change_booking` → `bookings`, `cancel_refund` → `refunds`, `question` → `support`, `other` (and anything else) → `escalation` |
+| `priority` | string | `high` if `customerTier = "premium"` else `normal` |
+| `slaHours` | number | `high` → 4, `normal` → 24 |
+
+### 5.4 Produced by user task forms
+
+| Task | Name | Type | Notes |
+|---|---|---|---|
+| `review-classification` | `intent` | string | overwrites classifier value |
+| `review-classification` | `escalate` | boolean | default `false` |
+| `handle-by-agent` | `agentNote` | string | free text |
+
+### 5.5 Produced by output mappings
+
+| Task | Name | Type | Value |
+|---|---|---|---|
+| `change-booking`, `cancel-refund`, `answer-question`, `handle-by-agent` | `resolution` | string | `booking_changed` \| `refund_issued` \| `answered` \| `agent_handled` |
+| `review-classification` | `needsReview` | boolean | `false` |
+
+### 5.6 Produced by `ticket.notify`
+
+| Name | Type | Phase 2 stub rule |
+|---|---|---|
+| `notificationTemplate` | string | `notify-<resolution>` |
+| `notifiedAt` | string | ISO 8601 timestamp |
+
+## 6. Message and correlation
+
+| Property | Value |
+|---|---|
+| Message name | `ticket.created` (referenced by `start-ticket-created`) |
+| Correlation key | not set in the model — a message start event opens no subscription; the key is carried by the published message: `correlationKey = ticketId` |
+| Message ID | `messageId = ticketId` (optional uniqueness check) |
+| Publish endpoint | `POST /v2/messages/publication` (REST API v2, Basic auth) |
+
+Idempotency comes from the publisher side: the engine does not create a new instance for a message start event while an active instance created with the same correlation key exists, and a message with the same name, correlation key and ID is rejected while a copy is buffered. Verified against the Camunda 8.9 messages concept page on 2026-09-22.
+
+## 7. Phase 2 stub worker
+
+One Python process (Python SDK per ADR-003) subscribes to all six job types. This is a deliberate, temporary deviation from ADR-003's Go-for-integration split: it keeps Phase 2 to a single moving part. Phase 4 moves `booking.change`, `booking.cancel` and `ticket.answer` to Go workers; `ticket.classify` and `ticket.notify` stay in Python for Phase 5.
+
+Location: `workers/stub/`. Configuration via env: `CAMUNDA_BASE_URL`, `CAMUNDA_USER`, `CAMUNDA_PASSWORD`. No secrets in the repo.
+
+Deterministic behaviour, keyed on `subject` (case-insensitive):
+
+| Job type | Rule |
+|---|---|
+| `ticket.classify` | contains `change` → `change_booking`, 0.92; contains `cancel` or `refund` → `cancel_refund`, 0.90; contains `?` or starts with `how`/`what`/`when` → `question`, 0.85; contains `unclear` → `question`, 0.40; otherwise `other`, 0.80. `sentiment` = `negative` if body contains `angry`/`terrible`, else `neutral`. `needsReview = confidence < 0.7`. |
+| `ticket.route` | per §5.3 |
+| `booking.change` | logs, returns `{}` |
+| `booking.cancel` | logs, returns `{}` |
+| `ticket.answer` | logs, returns `{}` |
+| `ticket.notify` | per §5.6, logs `resolution` and template |
+
+Every handler logs one line: `job=<type> ticketId=<id> -> <returned variables>`.
+
+## 8. E2E test set
+
+`tests/e2e/send-tickets.sh` publishes five messages and has two modes:
+
+| Mode | Behaviour | Purpose |
+|---|---|---|
+| default (unattended) | completes user tasks itself via `POST /v2/user-tasks/search` + `POST /v2/user-tasks/{key}/completion`, then verifies paths and `resolution` | regression run after every model change |
+| `--manual-user-tasks` | publishes messages, waits until tickets 4 and 5 reach their user task, prints the `taskKey`s and exits; user completes them in Tasklist, then runs `send-tickets.sh --check` for the same verification | acceptance run with Tasklist and Operate screenshots |
+
+| # | `ticketId` | `subject` | Expected path | Completed with | `resolution` |
+|---|---|---|---|---|---|
+| 1 | `T-1001` | Change my flight date | classify → route → change-booking | — | `booking_changed` |
+| 2 | `T-1002` | Please cancel and refund | classify → route → cancel-refund | — | `refund_issued` |
+| 3 | `T-1003` | What is the baggage limit? | classify → route → answer-question | — | `answered` |
+| 4 | `T-1004` | unclear request about my trip | classify → route → gw-needs-review → review-classification → gw-review-exit → gw-intent → answer-question | `intent=question, needsReview=false, escalate=false` | `answered` |
+| 5 | `T-1005` | Complaint about staff | classify → route → handle-by-agent | `agentNote="Called customer"` | `agent_handled` |
+
+Tickets 1, 2 and 4 carry `bookingRef`/`bookingValue`/`currency`; 3 and 5 send `null` for all three. Ticket 5 has `customerTier = "premium"` to show `priority = "high"`.
+
+## 9. Acceptance (Phase 2)
+
+- [ ] `support-request-v1` deployed from Desktop Modeler; version visible in Operate.
+- [ ] Stub worker running, all six job types polled (worker log).
+- [ ] Unattended run: `send-tickets.sh` exits 0; five completed instances in Operate, paths and `resolution` match §8, `notificationTemplate = notify-<resolution>`.
+- [ ] Manual run: `send-tickets.sh --manual-user-tasks`, tickets 4 and 5 completed in Tasklist, `send-tickets.sh --check` exits 0.
+- [ ] Screenshots in `docs/assets/phase-2/`: Operate diagram with all five paths highlighted (one per instance), variables panel of ticket 4, Tasklist form for tickets 4 and 5.
+- [ ] `docs/ops/install.md` updated with anything that broke (symptom → cause → fix).
+
+## 10. Decisions
+
+| # | Decision | Rationale |
+|---|---|---|
+| D2-1 | `review-classification` returns to `gw-intent`; `escalate` is the exit to the agent | Keeps the guardrail a guardrail, not a second agent path |
+| D2-2 | One `notify-customer`; branch identity carried in `resolution` | One job type, one LLM hook in Phase 5; branches stay visible in Operate via path and variables |
+| D2-3 | `resolution` set by output mapping, not by workers | Routing knowledge lives in the model |
+| D2-4 | `intent` ∈ {`change_booking`, `cancel_refund`, `question`, `other`}; review threshold `confidence < 0.7` | Four values map onto the branches without ambiguity; `other` falls to the default flow |
+| D2-5 | Single Python stub worker for all job types in Phase 2 | Temporary; Phase 4 restores the ADR-003 split |
+| D2-6 | Install run time recorded as ≤ 10 min without errors, to be measured on the next clean run | Not timed during the Phase 1 acceptance run |
+| D2-7 | Separate `gw-needs-review` before `gw-intent`; gateway conditions must be mutually exclusive | In v2 a single gateway with `needsReview = true` listed first still took the `intent = "question"` flow for a ticket where both were true. Relying on sequence-flow order is fragile; the structural split removes the dependency and makes the review path visible in Operate |

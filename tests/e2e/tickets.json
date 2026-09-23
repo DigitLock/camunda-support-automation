@@ -1,0 +1,141 @@
+[
+  {
+    "ticketId": "T-1001",
+    "customerId": "C-1001",
+    "customerTier": "standard",
+    "subject": "Change my flight date",
+    "body": "I need to move my flight to next Friday.",
+    "language": "en",
+    "bookingRef": "BK-77",
+    "bookingValue": 540.0,
+    "currency": "EUR",
+    "expected": {
+      "path": [
+        "change-booking",
+        "classify-ticket",
+        "end-resolved",
+        "gw-intent",
+        "gw-needs-review",
+        "notify-customer",
+        "route-ticket",
+        "start-ticket-created"
+      ],
+      "resolution": "booking_changed",
+      "userTask": null
+    }
+  },
+  {
+    "ticketId": "T-1002",
+    "customerId": "C-1002",
+    "customerTier": "standard",
+    "subject": "Please cancel and refund",
+    "body": "I cannot travel anymore, please refund my booking.",
+    "language": "en",
+    "bookingRef": "BK-81",
+    "bookingValue": 320.5,
+    "currency": "EUR",
+    "expected": {
+      "path": [
+        "cancel-refund",
+        "classify-ticket",
+        "end-resolved",
+        "gw-intent",
+        "gw-needs-review",
+        "notify-customer",
+        "route-ticket",
+        "start-ticket-created"
+      ],
+      "resolution": "refund_issued",
+      "userTask": null
+    }
+  },
+  {
+    "ticketId": "T-1003",
+    "customerId": "C-1003",
+    "customerTier": "standard",
+    "subject": "What is the baggage limit?",
+    "body": "Flying economy next week, how many bags can I take?",
+    "language": "en",
+    "bookingRef": null,
+    "bookingValue": null,
+    "currency": null,
+    "expected": {
+      "path": [
+        "answer-question",
+        "classify-ticket",
+        "end-resolved",
+        "gw-intent",
+        "gw-needs-review",
+        "notify-customer",
+        "route-ticket",
+        "start-ticket-created"
+      ],
+      "resolution": "answered",
+      "userTask": null
+    }
+  },
+  {
+    "ticketId": "T-1004",
+    "customerId": "C-1004",
+    "customerTier": "standard",
+    "subject": "unclear request about my trip",
+    "body": "Something about the trip, hard to say what exactly.",
+    "language": "en",
+    "bookingRef": "BK-90",
+    "bookingValue": 210.0,
+    "currency": "EUR",
+    "expected": {
+      "path": [
+        "answer-question",
+        "classify-ticket",
+        "end-resolved",
+        "gw-intent",
+        "gw-needs-review",
+        "gw-review-exit",
+        "notify-customer",
+        "review-classification",
+        "route-ticket",
+        "start-ticket-created"
+      ],
+      "resolution": "answered",
+      "userTask": {
+        "elementId": "review-classification",
+        "variables": {
+          "intent": "question",
+          "needsReview": false,
+          "escalate": false
+        }
+      }
+    }
+  },
+  {
+    "ticketId": "T-1005",
+    "customerId": "C-1005",
+    "customerTier": "premium",
+    "subject": "Complaint about staff",
+    "body": "The service at the check-in desk was terrible.",
+    "language": "en",
+    "bookingRef": null,
+    "bookingValue": null,
+    "currency": null,
+    "expected": {
+      "path": [
+        "classify-ticket",
+        "end-resolved",
+        "gw-intent",
+        "gw-needs-review",
+        "handle-by-agent",
+        "notify-customer",
+        "route-ticket",
+        "start-ticket-created"
+      ],
+      "resolution": "agent_handled",
+      "userTask": {
+        "elementId": "handle-by-agent",
+        "variables": {
+          "agentNote": "Called customer"
+        }
+      }
+    }
+  }
+]

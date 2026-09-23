@@ -178,6 +178,18 @@ Symptom → cause → fix entries are added here the moment something breaks dur
 - **Symptom:** host log timestamps differ from Operate and container logs by the local UTC offset.
   **Cause:** the VM keeps the installer's local time zone while everything in the stack logs in UTC.
   **Fix:** `timedatectl set-timezone UTC` on the VM.
+- **Symptom:** a ticket with `needsReview = true` took the `intent = "question"` flow at the
+  single `gw-intent` gateway (process v2), although the needsReview flow was defined first in
+  the XML.
+  **Cause:** not investigated; branch selection depended on gateway condition order.
+  **Fix:** separate `gw-needs-review` gateway before `gw-intent` with mutually exclusive
+  conditions (design D2-7), deployed as v3.
+- **Symptom:** process-instance search filtered by a variable returns 0 items although the
+  instance is visible in Operate.
+  **Cause:** v2 variable filters compare JSON-encoded values; a string must be sent with
+  embedded quotes (`"\"T-1001\""`), a bare `"T-1001"` never matches.
+  **Fix:** JSON-encode the filter value (in jq: `value: ($id | tojson)`), as in
+  `tests/e2e/send-tickets.sh`.
 - **Symptom:** the API still answers 200 without credentials after enabling protection.
   **Cause:** the config was edited on the workstation but not synced to the VM; Compose
   restarted the old files.

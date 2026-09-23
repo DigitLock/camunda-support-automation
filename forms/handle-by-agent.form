@@ -1,0 +1,35 @@
+{
+  "components": [
+    {
+      "text": "**{{subject}}** — team {{team}}, priority {{priority}}",
+      "type": "text",
+      "layout": {
+        "row": "Row_0bb2l0b",
+        "columns": null
+      },
+      "id": "Field_1a6k74l"
+    },
+    {
+      "label": "Agent note",
+      "type": "textarea",
+      "layout": {
+        "row": "Row_18d5p8y",
+        "columns": null
+      },
+      "id": "Field_0bsrvo8",
+      "key": "agentNote",
+      "validate": {
+        "required": true
+      }
+    }
+  ],
+  "type": "default",
+  "id": "handle-by-agent",
+  "executionPlatform": "Camunda Cloud",
+  "executionPlatformVersion": "8.9.0",
+  "exporter": {
+    "name": "Camunda Modeler",
+    "version": "5.51.1"
+  },
+  "schemaVersion": 19
+}
