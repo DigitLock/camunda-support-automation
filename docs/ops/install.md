@@ -272,6 +272,31 @@ Symptom → cause → fix entries are added here the moment something breaks dur
   any output mapping makes **all** completion variables task-local.
   **Fix:** map the worker's variables out explicitly on that task (v6, D4-6 in
   `docs/design/integrations-v1.md`) — e.g. `=refundCurrency` → `refundCurrency`.
+- **Symptom:** the classifier fails at the first LLM call with
+  `TypeError: Messages.create() got an unexpected keyword argument 'temperature'`.
+  **Cause:** `anthropic==1.8.0` removed sampling parameters (`temperature`, `top_p`,
+  `top_k`) from `messages.create` for current models; the argument no longer exists —
+  it did not move or get renamed.
+  **Fix:** call `messages.create` without `temperature`; determinism relies on the prompt
+  contract + JSON-schema validation + one retry (D5-2, `docs/design/llm-classifier-v1.md`).
+- **Symptom:** every classify call fails with `400 invalid_request_error:
+  "output_config.format.schema: For 'number' type, properties maximum, minimum are not
+  supported"`.
+  **Cause:** structured output (`output_config.format`) rejects numerical constraints
+  (`minimum`/`maximum`/`multipleOf`), string constraints (`minLength`/`maxLength`) and
+  `pattern` in the wire schema.
+  **Fix:** two schemas — `API_SCHEMA` (stripped copy) goes to the API, the full `SCHEMA`
+  stays as the local jsonschema validation, which still enforces the confidence range
+  and rationale length (`workers/llm-classifier/llm/guardrails.py`, D5-2).
+- **Symptom:** a review correction is ignored — after completing `review-classification`
+  with a different `intent`, the instance still routes by the LLM's original intent
+  (e2e: T-1004 corrected to `question` but ends in `handle-by-agent`).
+  **Cause:** D4-6 on the user task — its v6 output mapping (`needsReview=false`) makes
+  all completion variables task-local, so the form's `intent` never reaches the process
+  scope.
+  **Fix:** process v7 (Phase 5.3): explicit output mappings for
+  `intent`/`sentiment`/`escalate` on `review-classification`, together with the D5-4
+  re-routing. Known v6 limitation until then.
 - **Symptom:** the API still answers 200 without credentials after enabling protection.
   **Cause:** the config was edited on the workstation but not synced to the VM; Compose
   restarted the old files.

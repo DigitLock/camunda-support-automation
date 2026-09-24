@@ -1,0 +1,442 @@
+[
+  {
+    "id": "T-1001",
+    "language": "en",
+    "subject": "Change my flight date",
+    "body": "I need to move my flight to next Friday.",
+    "expected": {
+      "intent": "change_booking",
+      "sentiment": "neutral",
+      "needsReview": false
+    }
+  },
+  {
+    "id": "T-1002",
+    "language": "en",
+    "subject": "Please cancel and refund",
+    "body": "I cannot travel anymore, please refund my booking.",
+    "expected": {
+      "intent": "cancel_refund",
+      "sentiment": "neutral",
+      "needsReview": false
+    }
+  },
+  {
+    "id": "T-1003",
+    "language": "en",
+    "subject": "What is the baggage limit?",
+    "body": "Flying economy next week, how many bags can I take?",
+    "expected": {
+      "intent": "question",
+      "sentiment": "neutral",
+      "needsReview": false
+    }
+  },
+  {
+    "id": "T-1004",
+    "language": "en",
+    "subject": "unclear request about my trip",
+    "body": "Something about the trip, hard to say what exactly.",
+    "expected": {
+      "intent": null,
+      "sentiment": "neutral",
+      "needsReview": true
+    }
+  },
+  {
+    "id": "T-1005",
+    "language": "en",
+    "subject": "Complaint about staff",
+    "body": "The service at the check-in desk was terrible.",
+    "expected": {
+      "intent": "other",
+      "sentiment": "negative",
+      "needsReview": false
+    }
+  },
+  {
+    "id": "T-1006",
+    "language": "en",
+    "subject": "How do I get an invoice?",
+    "body": "The self-service portal is terrible, nothing works.",
+    "expected": {
+      "intent": "question",
+      "sentiment": "negative",
+      "needsReview": false
+    }
+  },
+  {
+    "id": "T-1007",
+    "language": "en",
+    "subject": "Change my hotel booking to a later week",
+    "body": "Plans moved, need the later week instead.",
+    "expected": {
+      "intent": "change_booking",
+      "sentiment": "neutral",
+      "needsReview": false
+    }
+  },
+  {
+    "id": "CLS-008",
+    "language": "ru",
+    "subject": "Перенос дат тура",
+    "body": "Добрый день! Мы бронировали тур в Анталью с 12 по 19 октября. Можно перенести вылет на неделю позже, с 19 по 26? Отель тот же.",
+    "expected": {
+      "intent": "change_booking",
+      "sentiment": "neutral",
+      "needsReview": false
+    }
+  },
+  {
+    "id": "CLS-009",
+    "language": "ru",
+    "subject": "Опечатка в фамилии",
+    "body": "В брони BK-203 фамилия написана «Иванвов» вместо «Иванов». Исправьте, пожалуйста, до вылета, чтобы не было проблем на регистрации.",
+    "expected": {
+      "intent": "change_booking",
+      "sentiment": "neutral",
+      "needsReview": false
+    }
+  },
+  {
+    "id": "CLS-010",
+    "language": "en",
+    "subject": "Name correction on ticket",
+    "body": "My middle name is missing on the e-ticket and the airline says it must match my passport. Please update the booking.",
+    "expected": {
+      "intent": "change_booking",
+      "sentiment": "neutral",
+      "needsReview": false
+    }
+  },
+  {
+    "id": "CLS-011",
+    "language": "en",
+    "subject": "Room upgrade for our anniversary",
+    "body": "We are celebrating our 10th anniversary on this trip — could you upgrade us to a sea-view room? Happy to pay the difference, this would make our holiday!",
+    "expected": {
+      "intent": "change_booking",
+      "sentiment": "positive",
+      "needsReview": false
+    }
+  },
+  {
+    "id": "CLS-012",
+    "language": "ru",
+    "subject": "Третий раз прошу перенести бронь",
+    "body": "Я уже дважды писал вам с просьбой перенести бронь на март — ноль реакции. Это возмутительно. Перенесите наконец даты, или я пойду в Роспотребнадзор.",
+    "expected": {
+      "intent": "change_booking",
+      "sentiment": "negative",
+      "needsReview": false
+    }
+  },
+  {
+    "id": "CLS-013",
+    "language": "ru",
+    "subject": "Отмена бронирования",
+    "body": "К сожалению, поездка не состоится по семейным обстоятельствам. Прошу отменить бронь BK-118 и вернуть оплату на ту же карту.",
+    "expected": {
+      "intent": "cancel_refund",
+      "sentiment": "neutral",
+      "needsReview": false
+    }
+  },
+  {
+    "id": "CLS-014",
+    "language": "ru",
+    "subject": "Где мой возврат?!",
+    "body": "Отменила тур ещё три недели назад, деньги до сих пор не пришли. Сколько можно ждать? Это уже похоже на мошенничество.",
+    "expected": {
+      "intent": "cancel_refund",
+      "sentiment": "negative",
+      "needsReview": false
+    }
+  },
+  {
+    "id": "CLS-015",
+    "language": "en",
+    "subject": "Refund status",
+    "body": "I cancelled booking BK-3321 on the 2nd and was told 10 business days. Could you check the status of my refund?",
+    "expected": {
+      "intent": "cancel_refund",
+      "sentiment": "neutral",
+      "needsReview": false
+    }
+  },
+  {
+    "id": "CLS-016",
+    "language": "ru",
+    "subject": "Отель отказал в заселении",
+    "body": "Приехали в отель, а мест нет — овербукинг. Нас переселили в худший отель без согласования. Требую вернуть разницу и компенсацию за испорченный отдых.",
+    "expected": {
+      "intent": "cancel_refund",
+      "sentiment": "negative",
+      "needsReview": false
+    }
+  },
+  {
+    "id": "CLS-017",
+    "language": "en",
+    "subject": "Hotel overbooked, I want my money back",
+    "body": "The hotel refused check-in because of overbooking and your hotline was useless. Cancel the rest of the package and refund me in full. This ruined our vacation.",
+    "expected": {
+      "intent": "cancel_refund",
+      "sentiment": "negative",
+      "needsReview": false
+    }
+  },
+  {
+    "id": "CLS-018",
+    "language": "ru",
+    "subject": "Нужна ли виза в Турцию?",
+    "body": "Летим по вашему туру в Стамбул в ноябре на 10 дней. Подскажите, нужна ли виза для граждан РФ и какие документы брать с собой?",
+    "expected": {
+      "intent": "question",
+      "sentiment": "neutral",
+      "needsReview": false
+    }
+  },
+  {
+    "id": "CLS-019",
+    "language": "en",
+    "subject": "Visa requirements for Egypt",
+    "body": "Do EU citizens need a visa for the Hurghada package in December, and can it be obtained on arrival?",
+    "expected": {
+      "intent": "question",
+      "sentiment": "neutral",
+      "needsReview": false
+    }
+  },
+  {
+    "id": "CLS-020",
+    "language": "ru",
+    "subject": "Норма багажа на чартере",
+    "body": "Подскажите, сколько килограммов багажа и ручной клади включено в чартерный рейс по туру BK-77? Хотим взять детскую коляску.",
+    "expected": {
+      "intent": "question",
+      "sentiment": "neutral",
+      "needsReview": false
+    }
+  },
+  {
+    "id": "CLS-021",
+    "language": "en",
+    "subject": "Check-in time at the hotel",
+    "body": "Our flight lands at 6 am. What is the standard check-in time at the hotel, and is early check-in possible?",
+    "expected": {
+      "intent": "question",
+      "sentiment": "neutral",
+      "needsReview": false
+    }
+  },
+  {
+    "id": "CLS-022",
+    "language": "ru",
+    "subject": "Оплата остатка",
+    "body": "Здравствуйте! Можно ли оплатить остаток по туру картой в рассрочку, или принимаете только полную оплату? До какого числа нужно внести?",
+    "expected": {
+      "intent": "question",
+      "sentiment": "neutral",
+      "needsReview": false
+    }
+  },
+  {
+    "id": "CLS-023",
+    "language": "en",
+    "subject": "Payment methods",
+    "body": "Can I pay the remaining balance with PayPal, or do you only accept card payments?",
+    "expected": {
+      "intent": "question",
+      "sentiment": "neutral",
+      "needsReview": false
+    }
+  },
+  {
+    "id": "CLS-024",
+    "language": "ru",
+    "subject": "Спасибо за отличный тур!",
+    "body": "Вернулись из Рима — всё было великолепно, отдельное спасибо гиду Марии за экскурсии. Обязательно поедем с вами ещё!",
+    "expected": {
+      "intent": "other",
+      "sentiment": "positive",
+      "needsReview": false
+    }
+  },
+  {
+    "id": "CLS-025",
+    "language": "en",
+    "subject": "Great experience",
+    "body": "Just wanted to say the whole trip was perfectly organised, transfers on time, lovely hotel. Thank you!",
+    "expected": {
+      "intent": "other",
+      "sentiment": "positive",
+      "needsReview": false
+    }
+  },
+  {
+    "id": "CLS-026",
+    "language": "ru",
+    "subject": "Жалоба на колл-центр",
+    "body": "Полчаса висел на линии, оператор бросил трубку. Никаких просьб по брони у меня нет, просто знайте: так с клиентами не разговаривают.",
+    "expected": {
+      "intent": "other",
+      "sentiment": "negative",
+      "needsReview": false
+    }
+  },
+  {
+    "id": "CLS-027",
+    "language": "en",
+    "subject": "This trip went wrong",
+    "body": "Honestly, after everything that happened with our trip I expect you to sort this out properly. You know what I mean.",
+    "expected": {
+      "intent": null,
+      "sentiment": "negative",
+      "needsReview": true
+    }
+  },
+  {
+    "id": "CLS-028",
+    "language": "ru",
+    "subject": "По поводу поездки",
+    "body": "Здравствуйте. Надо кое-что решить по нашей поездке, наберите меня или напишите, как удобнее.",
+    "expected": {
+      "intent": null,
+      "sentiment": "neutral",
+      "needsReview": true
+    }
+  },
+  {
+    "id": "CLS-029",
+    "language": "en",
+    "subject": "About the money side of our booking",
+    "body": "We need to discuss the financial part of booking BK-9. There were some changes on our side recently.",
+    "expected": {
+      "intent": null,
+      "sentiment": "neutral",
+      "needsReview": true
+    }
+  },
+  {
+    "id": "CLS-030",
+    "language": "ru",
+    "subject": "Отменять или переносить?",
+    "body": "У нас поменялись планы, и я пока не понимаю, что лучше — отменить тур совсем или перенести на осень. Что посоветуете по условиям?",
+    "expected": {
+      "intent": null,
+      "sentiment": "neutral",
+      "needsReview": true
+    }
+  },
+  {
+    "id": "CLS-031",
+    "language": "ru",
+    "subject": "атмена тура",
+    "body": "Здраствуйте, хочю атменить тур на Кипр и вернуть деньги, обстоятельства паменялись.",
+    "expected": {
+      "intent": "cancel_refund",
+      "sentiment": "neutral",
+      "needsReview": false
+    }
+  },
+  {
+    "id": "CLS-032",
+    "language": "ru",
+    "subject": "по датам",
+    "body": "Слушайте, ну надо бы даты подвигать — жена отпуск перенесла. Дней на пять позже получится?",
+    "expected": {
+      "intent": "change_booking",
+      "sentiment": "neutral",
+      "needsReview": false
+    }
+  },
+  {
+    "id": "CLS-033",
+    "language": "en",
+    "subject": "Baggage question and a date change",
+    "body": "I do have a question about the baggage allowance, but mainly I need to move our flight to the 28th — that is the important part.",
+    "expected": {
+      "intent": "change_booking",
+      "sentiment": "neutral",
+      "needsReview": false
+    }
+  },
+  {
+    "id": "CLS-034",
+    "language": "en",
+    "subject": "Money back possible?",
+    "body": "Would it be possible to get my money back for booking BK-4410? We will not be able to travel.",
+    "expected": {
+      "intent": "cancel_refund",
+      "sentiment": "neutral",
+      "needsReview": false
+    }
+  },
+  {
+    "id": "CLS-035",
+    "language": "ru",
+    "subject": "Овербукинг — сил больше нет",
+    "body": "В отеле мест нет, стоим с чемоданами на жаре. Если прямо сейчас не можете переселить — возвращайте все деньги, терпение кончилось.",
+    "expected": {
+      "intent": "cancel_refund",
+      "sentiment": "negative",
+      "needsReview": false
+    }
+  },
+  {
+    "id": "CLS-036",
+    "language": "en",
+    "subject": "CHECK-IN TIME?!",
+    "body": "What time is check-in at the hotel?! Third time I am asking, nobody bothers to answer. Unbelievable service.",
+    "expected": {
+      "intent": "question",
+      "sentiment": "negative",
+      "needsReview": false
+    }
+  },
+  {
+    "id": "CLS-037",
+    "language": "ru",
+    "subject": "виза",
+    "body": "падскажите по визе плз — нужна или нет на 8 дней в Грецию? загран новый",
+    "expected": {
+      "intent": "question",
+      "sentiment": "neutral",
+      "needsReview": false
+    }
+  },
+  {
+    "id": "CLS-038",
+    "language": "en",
+    "subject": "chnage of dates",
+    "body": "hi, i wnat to chnage the dates of my bokking BK-207, one week later then planed. thx",
+    "expected": {
+      "intent": "change_booking",
+      "sentiment": "neutral",
+      "needsReview": false
+    }
+  },
+  {
+    "id": "CLS-039",
+    "language": "ru",
+    "subject": "Страховка и отмена",
+    "body": "У меня есть вопрос по страховке, но главное другое — отмените наш тур, мы никуда не летим. Деньги верните на счёт.",
+    "expected": {
+      "intent": "cancel_refund",
+      "sentiment": "neutral",
+      "needsReview": false
+    }
+  },
+  {
+    "id": "CLS-040",
+    "language": "en",
+    "subject": "Push the trip?",
+    "body": "Hey! Any chance to push our trip a week later? Same hotel is fine.",
+    "expected": {
+      "intent": "change_booking",
+      "sentiment": "neutral",
+      "needsReview": false
+    }
+  }
+]

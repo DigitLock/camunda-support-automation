@@ -33,8 +33,8 @@ Ideas parked here to keep the current phase focused. Each entry names the phase 
 |---|---|---|
 | 5.0 | Design decisions D5-1…D5-6 (`docs/design/llm-classifier-v1.md`), ADR-004 amendment | done |
 | 5.1 | PostgreSQL + audit schema, worker rename to `workers/llm-classifier`, audit-writing skeleton, provider interface, smoke | done (acceptance run pending) |
-| 5.2 | Claude classify call, JSON-schema guardrails, retry + fallback, threshold calibration (`tests/classification/report.sh`) | planned |
-| 5.3 | Process v7: review loop re-routes (D5-4), `classification_review` writes — Modeler by the owner | planned |
+| 5.2 | Claude classify call, JSON-schema guardrails, retry + fallback, threshold calibration (`tests/classification/report.sh`) | done — e2e 6/7 on v6, T-1004 blocked by D4-6 until v7 (5.3) |
+| 5.3 | Process v7: review loop re-routes (D5-4), **explicit output mappings `intent`/`sentiment`/`escalate` on `review-classification` (D4-6 — mandatory, unblocks T-1004)**, `classification_review` writes — Modeler by the owner | planned |
 | 5.4 | LLM `ticket.answer` (grounded in `prompts/kb_tourism.md`) and `ticket.notify` (D5-5) | planned |
 | 5.5 | Acceptance, docs, screenshots | planned | The stand currently runs
      without a key ("Non-Production License" banner). Apply for the non-commercial license and

@@ -1,2 +1,4 @@
 camunda-orchestration-sdk==8.9.0.dev39
 psycopg[binary]==3.3.6
+anthropic==1.8.0
+jsonschema==4.26.0

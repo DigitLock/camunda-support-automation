@@ -134,25 +134,47 @@ wait_for_instance() { # TICKET_ID -> instance key
   echo "$key"
 }
 
+# Closes user tasks until each instance finishes. review-classification is closed for
+# ANY ticket where it appears (borderline LLM confidence can send any ticket to review —
+# design D5-2 note), keeping the current intent so the route is unchanged; only tickets
+# with expected.userTask get their scripted variables. Whether T-1004 actually visited
+# review is asserted by the path check in verify().
 complete_user_tasks() {
-  local id t key task task_key element expected_element vars
+  local id t key expected_element deadline state task task_key element vars intent_now
   for id in $(ticket_ids); do
     t=$(ticket "$id")
     expected_element=$(echo "$t" | jq -r '.expected.userTask.elementId // empty')
-    [ -z "$expected_element" ] && continue
-    key=$(wait_for_instance "$id")
-    if ! task=$(poll open_user_task "$key"); then
-      echo "error: $id reached no user task within ${TIMEOUT_SECONDS}s" >&2
-      return 1
-    fi
-    task_key=${task%% *}; element=${task##* }
-    if [ "$element" != "$expected_element" ]; then
-      echo "error: $id waits at '$element', expected '$expected_element'" >&2
-      return 1
-    fi
-    vars=$(echo "$t" | jq -c '{variables: .expected.userTask.variables}')
-    api POST "/user-tasks/$task_key/completion" "$vars" > /dev/null
-    echo "completed user task $element for $id (taskKey $task_key)"
+    key=$(wait_for_instance "$id") || return 1
+    deadline=$((SECONDS + TIMEOUT_SECONDS))
+    while [ "$SECONDS" -lt "$deadline" ]; do
+      state=$(instance_state_if_done "$key")
+      [ -n "$state" ] && break
+      task=$(open_user_task "$key")
+      if [ -n "$task" ]; then
+        task_key=${task%% *}; element=${task##* }
+        if [ "$element" = "review-classification" ]; then
+          if [ "$expected_element" = "review-classification" ]; then
+            vars=$(echo "$t" | jq -c '{variables: .expected.userTask.variables}')
+          else
+            intent_now=$(variable_value "$key" intent)
+            vars=$(jq -cn --arg i "$intent_now" \
+              '{variables: {intent: $i, needsReview: false, escalate: false}}')
+          fi
+          api POST "/user-tasks/$task_key/completion" "$vars" > /dev/null
+          echo "completed user task review-classification for $id (taskKey $task_key)"
+        elif [ "$element" = "handle-by-agent" ]; then
+          if [ "$expected_element" = "handle-by-agent" ]; then
+            vars=$(echo "$t" | jq -c '{variables: .expected.userTask.variables}')
+          else
+            echo "WARN: unexpected handle-by-agent for $id — closing it; verify judges by resolution"
+            vars='{"variables":{"agentNote":"closed by e2e (unexpected escalation)"}}'
+          fi
+          api POST "/user-tasks/$task_key/completion" "$vars" > /dev/null
+          echo "completed user task handle-by-agent for $id (taskKey $task_key)"
+        fi
+      fi
+      sleep "$POLL_INTERVAL"
+    done
   done
 }
 
@@ -187,7 +209,7 @@ routing_vars() {
 
 verify() {
   echo "run $RUN_ID: verifying"
-  local id t key state actual expected fails=0 resolution template exp_res
+  local id t key state actual expected path_fail fails=0 resolution template exp_res
   local routing actual_routing expected_routing sla_deadline
   local bve rac has_bv is_refund fx_fail count dedup_line=""
   for id in $(ticket_ids); do
@@ -205,9 +227,16 @@ verify() {
     if [ "$state" != "COMPLETED" ]; then
       echo "FAIL $id: instance $key state $state"; fails=$((fails+1)); continue
     fi
+    # Path check by final resolution: the expected path must be fully present, and any
+    # extra elements may only be the review detour (borderline confidence can send any
+    # ticket there — D5-2 note). T-1004 keeps its hard review expectation because
+    # review-classification is part of its expected.path.
     actual=$(api POST /element-instances/search "$(jq -cn --arg k "$key" '{filter: {processInstanceKey: $k, state: "COMPLETED"}}')" \
       | jq -c --arg pid "$PROCESS_ID" '[.items[].elementId | select(. != $pid)] | unique')
     expected=$(echo "$t" | jq -c '.expected.path | unique')
+    path_fail=$(jq -cn --argjson a "$actual" --argjson e "$expected" '
+      {missing: ($e - $a), extra: (($a - $e) - ["review-classification", "gw-review-exit"])}
+      | if .missing == [] and .extra == [] then empty else . end')
     resolution=$(variable_value "$key" resolution)
     template=$(variable_value "$key" notificationTemplate)
     exp_res=$(echo "$t" | jq -r '.expected.resolution')
@@ -233,8 +262,8 @@ verify() {
       { [ -n "$rac" ] && awk -v v="$rac" 'BEGIN { exit !(v > 0) }'; } \
         || fx_fail="refundAmountCustomer='$rac', expected > 0"
     fi
-    if [ "$actual" != "$expected" ]; then
-      echo "FAIL $id: path $actual, expected $expected"; fails=$((fails+1))
+    if [ -n "$path_fail" ]; then
+      echo "FAIL $id: path mismatch $path_fail (actual $actual)"; fails=$((fails+1))
     elif [ "$resolution" != "$exp_res" ] || [ "$template" != "notify-$exp_res" ]; then
       echo "FAIL $id: resolution=$resolution notificationTemplate=$template, expected $exp_res / notify-$exp_res"
       fails=$((fails+1))

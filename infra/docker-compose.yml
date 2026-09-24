@@ -258,6 +258,9 @@ services:
     profiles: ["workers"]
     env_file:
       - ../workers/llm-classifier/.env
+    volumes:
+      # versioned system prompts, loaded at runtime by CLASSIFY_PROMPT_VERSION
+      - ../prompts:/app/prompts:ro
     environment:
       # overrides the venv-oriented localhost values from the env_file
       CAMUNDA_BASE_URL: http://orchestration:8080
@@ -266,7 +269,7 @@ services:
       LLM_MODEL_CLASSIFY: ${LLM_MODEL_CLASSIFY:-claude-haiku-4-5}
       LLM_MODEL_GENERATE: ${LLM_MODEL_GENERATE:-claude-sonnet-5}
       CLASSIFY_CONFIDENCE_THRESHOLD: ${CLASSIFY_CONFIDENCE_THRESHOLD:-0.8}
-      CLASSIFY_PROMPT_VERSION: ${CLASSIFY_PROMPT_VERSION:-classify_v1}
+      CLASSIFY_PROMPT_VERSION: ${CLASSIFY_PROMPT_VERSION:-classify_v2}
     mem_limit: 256m
     restart: unless-stopped
     stop_grace_period: 30s
