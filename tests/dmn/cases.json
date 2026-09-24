@@ -1,36 +1,303 @@
 [
-  { "id": "C01", "inputs": { "intent": "change_booking", "customerTier": "standard", "sentiment": "neutral", "bookingValue": 500 },
-    "expected": { "team": "bookings", "priority": "normal", "slaHours": 24, "requiredChecks": ["availability"] } },
-  { "id": "C02", "inputs": { "intent": "change_booking", "customerTier": "premium", "sentiment": "neutral", "bookingValue": 500 },
-    "expected": { "team": "bookings", "priority": "high", "slaHours": 4, "requiredChecks": ["availability", "vip-handling"] } },
-  { "id": "C03", "inputs": { "intent": "change_booking", "customerTier": "standard", "sentiment": "negative", "bookingValue": 500 },
-    "expected": { "team": "bookings", "priority": "high", "slaHours": 4, "requiredChecks": ["availability"] } },
-  { "id": "C04", "inputs": { "intent": "change_booking", "customerTier": "standard", "sentiment": "neutral", "bookingValue": 1500 },
-    "expected": { "team": "bookings", "priority": "high", "slaHours": 4, "requiredChecks": ["availability"] } },
-  { "id": "C05", "inputs": { "intent": "cancel_refund", "customerTier": "standard", "sentiment": "neutral", "bookingValue": 800 },
-    "expected": { "team": "refunds", "priority": "normal", "slaHours": 24, "requiredChecks": ["refund-policy"] } },
-  { "id": "C06", "inputs": { "intent": "cancel_refund", "customerTier": "standard", "sentiment": "neutral", "bookingValue": 2500 },
-    "expected": { "team": "refunds", "priority": "high", "slaHours": 4, "requiredChecks": ["refund-policy", "manual-approval"] } },
-  { "id": "C07", "inputs": { "intent": "cancel_refund", "customerTier": "premium", "sentiment": "positive", "bookingValue": 300 },
-    "expected": { "team": "refunds", "priority": "high", "slaHours": 4, "requiredChecks": ["refund-policy", "vip-handling"] } },
-  { "id": "C08", "inputs": { "intent": "cancel_refund", "customerTier": "standard", "sentiment": "negative", "bookingValue": 1200 },
-    "expected": { "team": "refunds", "priority": "high", "slaHours": 4, "requiredChecks": ["refund-policy", "manual-approval"] } },
-  { "id": "C09", "inputs": { "intent": "question", "customerTier": "standard", "sentiment": "positive", "bookingValue": null },
-    "expected": { "team": "support", "priority": "normal", "slaHours": 24, "requiredChecks": [] } },
-  { "id": "C10", "inputs": { "intent": "question", "customerTier": "standard", "sentiment": "negative", "bookingValue": null },
-    "expected": { "team": "support", "priority": "high", "slaHours": 4, "requiredChecks": [] } },
-  { "id": "C11", "inputs": { "intent": "question", "customerTier": "premium", "sentiment": "neutral", "bookingValue": null },
-    "expected": { "team": "support", "priority": "high", "slaHours": 4, "requiredChecks": ["vip-handling"] } },
-  { "id": "C12", "inputs": { "intent": "other", "customerTier": "standard", "sentiment": "neutral", "bookingValue": null },
-    "expected": { "team": "escalation", "priority": "normal", "slaHours": 24, "requiredChecks": [] } },
-  { "id": "C13", "inputs": { "intent": "other", "customerTier": "premium", "sentiment": "negative", "bookingValue": 5000 },
-    "expected": { "team": "escalation", "priority": "high", "slaHours": 4, "requiredChecks": ["vip-handling"] } },
-  { "id": "C14", "inputs": { "intent": "change_booking", "customerTier": "standard", "sentiment": "neutral", "bookingValue": 1000 },
-    "expected": { "team": "bookings", "priority": "normal", "slaHours": 24, "requiredChecks": ["availability"] } },
-  { "id": "C15", "inputs": { "intent": "cancel_refund", "customerTier": "standard", "sentiment": "neutral", "bookingValue": 1000.01 },
-    "expected": { "team": "refunds", "priority": "high", "slaHours": 4, "requiredChecks": ["refund-policy", "manual-approval"] } },
-  { "id": "C16", "inputs": { "intent": "question", "customerTier": "standard", "sentiment": "neutral", "bookingValue": 50 },
-    "expected": { "team": "support", "priority": "normal", "slaHours": 24, "requiredChecks": [] } },
-  { "id": "C17", "inputs": { "intent": "unknown_intent", "customerTier": "standard", "sentiment": "neutral", "bookingValue": null },
-    "expected": { "team": "escalation", "priority": "normal", "slaHours": 24, "requiredChecks": [] } }
+  {
+    "id": "C01",
+    "inputs": {
+      "intent": "change_booking",
+      "customerTier": "standard",
+      "sentiment": "neutral",
+      "bookingValueEur": 500
+    },
+    "expected": {
+      "team": "bookings",
+      "priority": "normal",
+      "slaHours": 24,
+      "requiredChecks": [
+        "availability"
+      ]
+    }
+  },
+  {
+    "id": "C02",
+    "inputs": {
+      "intent": "change_booking",
+      "customerTier": "premium",
+      "sentiment": "neutral",
+      "bookingValueEur": 500
+    },
+    "expected": {
+      "team": "bookings",
+      "priority": "high",
+      "slaHours": 4,
+      "requiredChecks": [
+        "availability",
+        "vip-handling"
+      ]
+    }
+  },
+  {
+    "id": "C03",
+    "inputs": {
+      "intent": "change_booking",
+      "customerTier": "standard",
+      "sentiment": "negative",
+      "bookingValueEur": 500
+    },
+    "expected": {
+      "team": "bookings",
+      "priority": "high",
+      "slaHours": 4,
+      "requiredChecks": [
+        "availability"
+      ]
+    }
+  },
+  {
+    "id": "C04",
+    "inputs": {
+      "intent": "change_booking",
+      "customerTier": "standard",
+      "sentiment": "neutral",
+      "bookingValueEur": 1500
+    },
+    "expected": {
+      "team": "bookings",
+      "priority": "high",
+      "slaHours": 4,
+      "requiredChecks": [
+        "availability"
+      ]
+    }
+  },
+  {
+    "id": "C05",
+    "inputs": {
+      "intent": "cancel_refund",
+      "customerTier": "standard",
+      "sentiment": "neutral",
+      "bookingValueEur": 800
+    },
+    "expected": {
+      "team": "refunds",
+      "priority": "normal",
+      "slaHours": 24,
+      "requiredChecks": [
+        "refund-policy"
+      ]
+    }
+  },
+  {
+    "id": "C06",
+    "inputs": {
+      "intent": "cancel_refund",
+      "customerTier": "standard",
+      "sentiment": "neutral",
+      "bookingValueEur": 2500
+    },
+    "expected": {
+      "team": "refunds",
+      "priority": "high",
+      "slaHours": 4,
+      "requiredChecks": [
+        "refund-policy",
+        "manual-approval"
+      ]
+    }
+  },
+  {
+    "id": "C07",
+    "inputs": {
+      "intent": "cancel_refund",
+      "customerTier": "premium",
+      "sentiment": "positive",
+      "bookingValueEur": 300
+    },
+    "expected": {
+      "team": "refunds",
+      "priority": "high",
+      "slaHours": 4,
+      "requiredChecks": [
+        "refund-policy",
+        "vip-handling"
+      ]
+    }
+  },
+  {
+    "id": "C08",
+    "inputs": {
+      "intent": "cancel_refund",
+      "customerTier": "standard",
+      "sentiment": "negative",
+      "bookingValueEur": 1200
+    },
+    "expected": {
+      "team": "refunds",
+      "priority": "high",
+      "slaHours": 4,
+      "requiredChecks": [
+        "refund-policy",
+        "manual-approval"
+      ]
+    }
+  },
+  {
+    "id": "C09",
+    "inputs": {
+      "intent": "question",
+      "customerTier": "standard",
+      "sentiment": "positive",
+      "bookingValueEur": null
+    },
+    "expected": {
+      "team": "support",
+      "priority": "normal",
+      "slaHours": 24,
+      "requiredChecks": []
+    }
+  },
+  {
+    "id": "C10",
+    "inputs": {
+      "intent": "question",
+      "customerTier": "standard",
+      "sentiment": "negative",
+      "bookingValueEur": null
+    },
+    "expected": {
+      "team": "support",
+      "priority": "high",
+      "slaHours": 4,
+      "requiredChecks": []
+    }
+  },
+  {
+    "id": "C11",
+    "inputs": {
+      "intent": "question",
+      "customerTier": "premium",
+      "sentiment": "neutral",
+      "bookingValueEur": null
+    },
+    "expected": {
+      "team": "support",
+      "priority": "high",
+      "slaHours": 4,
+      "requiredChecks": [
+        "vip-handling"
+      ]
+    }
+  },
+  {
+    "id": "C12",
+    "inputs": {
+      "intent": "other",
+      "customerTier": "standard",
+      "sentiment": "neutral",
+      "bookingValueEur": null
+    },
+    "expected": {
+      "team": "escalation",
+      "priority": "normal",
+      "slaHours": 24,
+      "requiredChecks": []
+    }
+  },
+  {
+    "id": "C13",
+    "inputs": {
+      "intent": "other",
+      "customerTier": "premium",
+      "sentiment": "negative",
+      "bookingValueEur": 5000
+    },
+    "expected": {
+      "team": "escalation",
+      "priority": "high",
+      "slaHours": 4,
+      "requiredChecks": [
+        "vip-handling"
+      ]
+    }
+  },
+  {
+    "id": "C14",
+    "inputs": {
+      "intent": "change_booking",
+      "customerTier": "standard",
+      "sentiment": "neutral",
+      "bookingValueEur": 1000
+    },
+    "expected": {
+      "team": "bookings",
+      "priority": "normal",
+      "slaHours": 24,
+      "requiredChecks": [
+        "availability"
+      ]
+    }
+  },
+  {
+    "id": "C15",
+    "inputs": {
+      "intent": "cancel_refund",
+      "customerTier": "standard",
+      "sentiment": "neutral",
+      "bookingValueEur": 1000.01
+    },
+    "expected": {
+      "team": "refunds",
+      "priority": "high",
+      "slaHours": 4,
+      "requiredChecks": [
+        "refund-policy",
+        "manual-approval"
+      ]
+    }
+  },
+  {
+    "id": "C16",
+    "inputs": {
+      "intent": "question",
+      "customerTier": "standard",
+      "sentiment": "neutral",
+      "bookingValueEur": 50
+    },
+    "expected": {
+      "team": "support",
+      "priority": "normal",
+      "slaHours": 24,
+      "requiredChecks": []
+    }
+  },
+  {
+    "id": "C17",
+    "inputs": {
+      "intent": "unknown_intent",
+      "customerTier": "standard",
+      "sentiment": "neutral",
+      "bookingValueEur": null
+    },
+    "expected": {
+      "team": "escalation",
+      "priority": "normal",
+      "slaHours": 24,
+      "requiredChecks": []
+    }
+  },
+  {
+    "id": "C18",
+    "inputs": {
+      "intent": "change_booking",
+      "customerTier": "standard",
+      "sentiment": "neutral",
+      "bookingValueEur": 920
+    },
+    "expected": {
+      "team": "bookings",
+      "priority": "normal",
+      "slaHours": 24,
+      "requiredChecks": [
+        "availability"
+      ]
+    }
+  }
 ]

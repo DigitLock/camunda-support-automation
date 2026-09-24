@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
-# E2E test for support-request-v1 (design §8). Publishes the five tickets from tickets.json,
-# completes user tasks over REST (or leaves them for Tasklist with --manual-user-tasks),
-# then verifies path, resolution and notificationTemplate per ticket.
+# E2E test for support-request-v1 (design §8). Produces the tickets from tickets.json to
+# the Kafka topic support.ticket.created (kcat, or a kafka-console-producer fallback over
+# SSH), completes user tasks over REST (or leaves them for Tasklist with
+# --manual-user-tasks), then verifies path, resolution, routing and FX variables per ticket.
+#
+# Producing needs either kcat + KAFKA_BROKER (or STAND_IP, port 9092), or STAND_HOST for
+# the SSH fallback. Verification uses the REST API as before (CAMUNDA_* variables).
 #
 # Modes:
 #   send-tickets.sh                     unattended run: publish, complete user tasks, verify
@@ -15,7 +19,7 @@ cd "$(dirname "$0")"
 TICKETS_FILE=tickets.json
 LAST_RUN_FILE=.last-run
 PROCESS_ID=support-request-v1
-MESSAGE_NAME=ticket.created
+TOPIC=support.ticket.created
 TIMEOUT_SECONDS=60
 POLL_INTERVAL=2
 
@@ -54,17 +58,31 @@ ticket() { jq -c --arg id "$1" '.[] | select(.ticketId == $id)' "$TICKETS_FILE";
 
 publish_tickets() {
   RUN_ID=$(date -u +%Y%m%dT%H%M%SZ)
-  echo "run $RUN_ID: publishing ${MESSAGE_NAME} for $(ticket_ids | wc -l | tr -d ' ') tickets"
-  local id body
+  local broker="${KAFKA_BROKER:-${STAND_IP:-}:9092}"
+  echo "run $RUN_ID: producing to ${TOPIC} for $(ticket_ids | wc -l | tr -d ' ') tickets"
+  local id payload
   for id in $(ticket_ids); do
-    body=$(ticket "$id" | jq -c --arg run "$RUN_ID" '{
-      name: "'"$MESSAGE_NAME"'",
-      correlationKey: .ticketId,
-      messageId: (.ticketId + "-" + $run),
-      variables: (del(.expected) + {runId: $run})
-    }')
-    api POST /messages/publication "$body" > /dev/null
-    echo "published $id (messageId $id-$RUN_ID)"
+    # messageId in the payload is the dedup key of the Kafka start event connector (D4-5)
+    payload=$(ticket "$id" | jq -c --arg run "$RUN_ID" \
+      'del(.expected) + {runId: $run, messageId: (.ticketId + "-" + $run)}')
+    if command -v kcat >/dev/null 2>&1; then
+      if [ "$broker" = ":9092" ]; then
+        echo "error: set KAFKA_BROKER (or STAND_IP) to reach Kafka with kcat" >&2
+        exit 1
+      fi
+      printf '%s\n' "$payload" | kcat -b "$broker" -t "$TOPIC" -k "$id" -P
+    else
+      # fallback: produce from inside the kafka container over SSH
+      if [ -z "${STAND_HOST:-}" ]; then
+        echo "error: kcat not found and STAND_HOST is not set for the SSH fallback" >&2
+        exit 1
+      fi
+      printf '%s\t%s\n' "$id" "$payload" | ssh "$STAND_HOST" \
+        "cd /opt/camunda-support-automation/infra && docker compose exec -T kafka \
+         /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server localhost:29092 \
+         --topic $TOPIC --property parse.key=true --property 'key.separator=\t' > /dev/null"
+    fi
+    echo "produced $id (messageId $id-$RUN_ID)"
   done
   echo "$RUN_ID" > "$LAST_RUN_FILE"
 }
@@ -144,7 +162,7 @@ variable_value() { # INSTANCE_KEY NAME — unwraps JSON-encoded string values
 # variable values arrive JSON-encoded, hence fromjson
 routing_vars() {
   api POST /variables/search "$(jq -cn --arg k "$1" \
-    '{filter: {processInstanceKey: $k, name: {"$in": ["team","priority","slaHours","requiredChecks","slaDeadline"]}}}')" \
+    '{filter: {processInstanceKey: $k, name: {"$in": ["team","priority","slaHours","requiredChecks","slaDeadline","bookingValueEur","refundAmountCustomer"]}}}')" \
     | jq -c '[.items[] | {(.name): (.value | try fromjson catch .)}] | add // {}'
 }
 
@@ -152,6 +170,7 @@ verify() {
   echo "run $RUN_ID: verifying"
   local id t key state actual expected fails=0 resolution template exp_res
   local routing actual_routing expected_routing sla_deadline
+  local bve rac has_bv is_refund fx_fail
   for id in $(ticket_ids); do
     t=$(ticket "$id")
     if ! key=$(wait_for_instance "$id"); then fails=$((fails+1)); echo "FAIL $id: instance not found"; continue; fi
@@ -172,6 +191,23 @@ verify() {
     actual_routing=$(echo "$routing" | jq -cS '{team, priority, slaHours, requiredChecks: ((.requiredChecks // []) | sort)}')
     expected_routing=$(echo "$t" | jq -cS '.expected.routing | {team, priority, slaHours, requiredChecks: (.requiredChecks | sort)}')
     sla_deadline=$(echo "$routing" | jq -r '.slaDeadline // empty')
+    # FX checks: bookingValueEur only where the ticket has a bookingValue; the refund
+    # conversion only on the cancel branch
+    bve=$(echo "$routing" | jq -r '.bookingValueEur // empty')
+    rac=$(echo "$routing" | jq -r '.refundAmountCustomer // empty')
+    has_bv=$(echo "$t" | jq -r '.bookingValue != null')
+    is_refund=$(echo "$t" | jq -r '.expected.resolution == "refund_issued"')
+    fx_fail=""
+    if [ "$has_bv" = "true" ]; then
+      { [ -n "$bve" ] && awk -v v="$bve" 'BEGIN { exit !(v > 0) }'; } \
+        || fx_fail="bookingValueEur='$bve', expected > 0"
+    elif [ -n "$bve" ] && [ "$bve" != "null" ]; then
+      fx_fail="bookingValueEur='$bve', expected absent (no bookingValue)"
+    fi
+    if [ -z "$fx_fail" ] && [ "$is_refund" = "true" ]; then
+      { [ -n "$rac" ] && awk -v v="$rac" 'BEGIN { exit !(v > 0) }'; } \
+        || fx_fail="refundAmountCustomer='$rac', expected > 0"
+    fi
     if [ "$actual" != "$expected" ]; then
       echo "FAIL $id: path $actual, expected $expected"; fails=$((fails+1))
     elif [ "$resolution" != "$exp_res" ] || [ "$template" != "notify-$exp_res" ]; then
@@ -181,6 +217,8 @@ verify() {
       echo "FAIL $id: routing $actual_routing, expected $expected_routing"; fails=$((fails+1))
     elif [ -z "$sla_deadline" ]; then
       echo "FAIL $id: slaDeadline is missing or empty"; fails=$((fails+1))
+    elif [ -n "$fx_fail" ]; then
+      echo "FAIL $id: $fx_fail"; fails=$((fails+1))
     else
       echo "PASS $id: path ok, resolution=$resolution, routing ok, slaDeadline=$sla_deadline"
     fi

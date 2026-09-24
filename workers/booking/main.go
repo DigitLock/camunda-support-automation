@@ -99,12 +99,22 @@ func (w *worker) handle(ctx context.Context, job activatedJob) {
 		w.report(ctx, log, w.camunda.failJob(ctx, job.JobKey, job.Retries-1, fmt.Sprintf("booking-api returned HTTP %d", resp.StatusCode)))
 	default:
 		var booking struct {
-			Status string `json:"status"`
+			Status   string  `json:"status"`
+			Value    float64 `json:"value"`
+			Currency string  `json:"currency"`
 		}
 		_ = json.NewDecoder(resp.Body).Decode(&booking)
 		resp.Body.Close()
+		variables := map[string]any{"bookingStatus": booking.Status}
+		if job.Type == "booking.cancel" {
+			// refund contract (docs/design/integrations-v1.md): the refund equals the
+			// booking's value in the booking's currency; conversion to the customer's
+			// currency happens in the process (convert-refund)
+			variables["refundAmount"] = booking.Value
+			variables["refundCurrency"] = booking.Currency
+		}
 		log.Info("completed", "bookingStatus", booking.Status)
-		w.report(ctx, log, w.camunda.completeJob(ctx, job.JobKey, map[string]any{"bookingStatus": booking.Status}))
+		w.report(ctx, log, w.camunda.completeJob(ctx, job.JobKey, variables))
 	}
 }
 

@@ -29,7 +29,8 @@ var (
 		"BK-77":   {ID: "BK-77", CustomerID: "C-1001", Value: 540.0, Currency: "EUR", BookedAt: "2026-08-30", TravelDate: "2026-10-14", Status: "confirmed"},
 		"BK-81":   {ID: "BK-81", CustomerID: "C-1002", Value: 320.5, Currency: "EUR", BookedAt: "2026-09-02", TravelDate: "2026-10-02", Status: "confirmed"},
 		"BK-90":   {ID: "BK-90", CustomerID: "C-1004", Value: 210.0, Currency: "EUR", BookedAt: "2026-09-10", TravelDate: "2026-11-20", Status: "confirmed"},
-		"BK-1001": {ID: "BK-1001", CustomerID: "C-2001", Value: 1200.0, Currency: "USD", BookedAt: "2026-09-15", TravelDate: "2026-12-05", Status: "confirmed"},
+		// values/currencies aligned with tests/e2e/tickets.json (BK-1001 ↔ T-1007)
+		"BK-1001": {ID: "BK-1001", CustomerID: "C-2001", Value: 1050.0, Currency: "USD", BookedAt: "2026-09-15", TravelDate: "2026-12-05", Status: "confirmed"},
 	}
 )
 

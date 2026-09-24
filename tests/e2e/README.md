@@ -4,14 +4,20 @@
 deployed process over the REST API v2 (bash + curl + jq). Ticket payloads and expectations live
 in `tickets.json`; the script contains no data.
 
-Prerequisites: core stack up, `support-request-v1` deployed, worker containers running
-(compose profile `workers`, see `docs/ops/install.md`). Environment contract is the same
-as the workers:
+Prerequisites: core stack up, `support-request-v1` (v5+) deployed, worker containers
+running (compose profile `workers`, see `docs/ops/install.md`). Since process v5 the
+tickets are **produced to Kafka** (`support.ticket.created`) — the Kafka start event
+connector is the only process entry — and verification still runs over the REST API:
 
 ```bash
+# verification (same as the workers)
 export CAMUNDA_BASE_URL=http://localhost:8080   # or the stand's address
 export CAMUNDA_USER=admin
 export CAMUNDA_PASSWORD=...                     # from infra/.env on the stand
+
+# producing: kcat (brew install kcat) against the stand's EXTERNAL Kafka listener
+export STAND_IP=...                             # VM address; or KAFKA_BROKER=host:9092
+# without kcat the script falls back to kafka-console-producer over SSH (needs STAND_HOST)
 ```
 
 ## Modes
@@ -28,17 +34,22 @@ export CAMUNDA_PASSWORD=...                     # from infra/.env on the stand
 ./send-tickets.sh --check
 ```
 
-Each run gets a `RUN_ID` (UTC timestamp). It is sent as `messageId = <ticketId>-<RUN_ID>`
-(so repeated runs pass the message uniqueness check) and as the `runId` process variable
-(so verification finds exactly this run's instances). The last `RUN_ID` is stored in
-`.last-run` (git-ignored) for `--check`.
+Each run gets a `RUN_ID` (UTC timestamp). The event payload carries
+`messageId = <ticketId>-<RUN_ID>` — the dedup key of the Kafka start event connector
+(D4-5), so repeated runs start fresh instances — and `runId`, so verification finds
+exactly this run's instances. The Kafka record key is the `ticketId`. The last `RUN_ID`
+is stored in `.last-run` (git-ignored) for `--check`.
 
 ## What verification checks per ticket
 
 - the process instance created for `(runId, ticketId)` is `COMPLETED`;
 - the set of completed element IDs equals the expected path from §8 (set equality — order
   and repeated gateway visits are not asserted);
-- `resolution` and `notificationTemplate` match §8 (`notify-<resolution>`).
+- `resolution` and `notificationTemplate` match §8 (`notify-<resolution>`);
+- routing (`team`, `priority`, `slaHours`, `requiredChecks` as a set) and a non-empty
+  `slaDeadline`;
+- FX variables: `bookingValueEur > 0` where the ticket has a `bookingValue` (absent
+  otherwise), `refundAmountCustomer > 0` on the cancel branch.
 
 One `PASS`/`FAIL` line per ticket; exit code is non-zero if anything failed.
 

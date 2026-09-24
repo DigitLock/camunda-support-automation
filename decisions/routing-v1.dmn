@@ -57,7 +57,7 @@
       </input>
       <input id="InputClause_11nfx8q" label="bookingValue">
         <inputExpression id="LiteralExpression_1cfbv4m" typeRef="number">
-          <text>bookingValue</text>
+          <text>bookingValueEur</text>
         </inputExpression>
       </input>
       <output id="OutputClause_1f9ktna" label="priority" name="priority" typeRef="string" />
@@ -150,7 +150,7 @@
       </input>
       <input id="InputClause_1mrs0nn" label="bookingValue">
         <inputExpression id="LiteralExpression_1yplwk4" typeRef="number">
-          <text>bookingValue</text>
+          <text>bookingValueEur</text>
         </inputExpression>
       </input>
       <output id="OutputClause_05j0blg" label="check" name="check" typeRef="string" />

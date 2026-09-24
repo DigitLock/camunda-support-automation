@@ -13,6 +13,8 @@ GET /convert?from=USD&to=EUR&amount=1200
 ```
 
 - `converted` — rounded to 2 decimal places; `rate` is returned as provided by the source;
+- `from == to` — short-circuit: `rate: 1`, `converted = amount` (rounded), `asOf` = today
+  (UTC), no provider call — so same-currency conversions work offline and for any code;
 - `400` — malformed parameters (currencies must be 3-letter uppercase codes, amount > 0);
 - `502` — provider unreachable, provider error, or unsupported currency pair;
 - `GET /healthz` — liveness; the container healthcheck runs `/app -check` (scratch has no shell).

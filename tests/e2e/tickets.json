@@ -13,10 +13,13 @@
       "path": [
         "change-booking",
         "classify-ticket",
+        "convert-booking-value",
         "end-resolved",
+        "gw-has-booking-value",
         "gw-intent",
         "gw-needs-review",
         "notify-customer",
+        "publish-resolved",
         "route-ticket",
         "start-ticket-created"
       ],
@@ -30,7 +33,8 @@
           "availability"
         ]
       }
-    }
+    },
+    "customerCurrency": "EUR"
   },
   {
     "ticketId": "T-1002",
@@ -46,10 +50,14 @@
       "path": [
         "cancel-refund",
         "classify-ticket",
+        "convert-booking-value",
+        "convert-refund",
         "end-resolved",
+        "gw-has-booking-value",
         "gw-intent",
         "gw-needs-review",
         "notify-customer",
+        "publish-resolved",
         "route-ticket",
         "start-ticket-created"
       ],
@@ -63,7 +71,8 @@
           "refund-policy"
         ]
       }
-    }
+    },
+    "customerCurrency": "GBP"
   },
   {
     "ticketId": "T-1003",
@@ -80,9 +89,11 @@
         "answer-question",
         "classify-ticket",
         "end-resolved",
+        "gw-has-booking-value",
         "gw-intent",
         "gw-needs-review",
         "notify-customer",
+        "publish-resolved",
         "route-ticket",
         "start-ticket-created"
       ],
@@ -94,7 +105,8 @@
         "slaHours": 24,
         "requiredChecks": []
       }
-    }
+    },
+    "customerCurrency": "EUR"
   },
   {
     "ticketId": "T-1004",
@@ -110,11 +122,14 @@
       "path": [
         "answer-question",
         "classify-ticket",
+        "convert-booking-value",
         "end-resolved",
+        "gw-has-booking-value",
         "gw-intent",
         "gw-needs-review",
         "gw-review-exit",
         "notify-customer",
+        "publish-resolved",
         "review-classification",
         "route-ticket",
         "start-ticket-created"
@@ -134,7 +149,8 @@
         "slaHours": 24,
         "requiredChecks": []
       }
-    }
+    },
+    "customerCurrency": "USD"
   },
   {
     "ticketId": "T-1005",
@@ -150,10 +166,12 @@
       "path": [
         "classify-ticket",
         "end-resolved",
+        "gw-has-booking-value",
         "gw-intent",
         "gw-needs-review",
         "handle-by-agent",
         "notify-customer",
+        "publish-resolved",
         "route-ticket",
         "start-ticket-created"
       ],
@@ -172,7 +190,8 @@
           "vip-handling"
         ]
       }
-    }
+    },
+    "customerCurrency": "GBP"
   },
   {
     "ticketId": "T-1006",
@@ -189,9 +208,11 @@
         "answer-question",
         "classify-ticket",
         "end-resolved",
+        "gw-has-booking-value",
         "gw-intent",
         "gw-needs-review",
         "notify-customer",
+        "publish-resolved",
         "route-ticket",
         "start-ticket-created"
       ],
@@ -202,6 +223,44 @@
         "priority": "high",
         "slaHours": 4,
         "requiredChecks": []
+      }
+    },
+    "customerCurrency": "EUR"
+  },
+  {
+    "ticketId": "T-1007",
+    "customerId": "C-2001",
+    "customerTier": "standard",
+    "subject": "Change my hotel booking to a later week",
+    "body": "Plans moved, need the later week instead.",
+    "language": "en",
+    "bookingRef": "BK-1001",
+    "bookingValue": 1050,
+    "currency": "USD",
+    "customerCurrency": "USD",
+    "expected": {
+      "path": [
+        "change-booking",
+        "classify-ticket",
+        "convert-booking-value",
+        "end-resolved",
+        "gw-has-booking-value",
+        "gw-intent",
+        "gw-needs-review",
+        "notify-customer",
+        "publish-resolved",
+        "route-ticket",
+        "start-ticket-created"
+      ],
+      "resolution": "booking_changed",
+      "userTask": null,
+      "routing": {
+        "team": "bookings",
+        "priority": "normal",
+        "slaHours": 24,
+        "requiredChecks": [
+          "availability"
+        ]
       }
     }
   }

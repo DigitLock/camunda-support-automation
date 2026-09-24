@@ -1,7 +1,9 @@
 # DMN test matrix: routing-v1
 
 `evaluate.sh` evaluates the deployed `route-ticket` decision (DRD `routing-v1`,
-`docs/design/routing-v1.md` §7) for the 17 cases in `cases.json` via
+`docs/design/routing-v1.md` §7) for the 18 cases in `cases.json` (C18 is the Phase 4
+currency demo: 1050 USD ≈ 920 `bookingValueEur` → `normal`, decision D3-7; since process
+v5 the `sla-policy` input is `bookingValueEur`) via
 `POST /v2/decision-definitions/evaluation` and compares `team`, `priority`, `slaHours`
 and `requiredChecks` (as a set).
 

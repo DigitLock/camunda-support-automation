@@ -48,6 +48,10 @@ services:
       CAMUNDA_CLIENT_AUTH_METHOD: basic
       CAMUNDA_CLIENT_AUTH_USERNAME: connectors
       CAMUNDA_CLIENT_AUTH_PASSWORD: ${CAMUNDA_CONNECTORS_PASSWORD:?set CAMUNDA_CONNECTORS_PASSWORD in infra/.env}
+      # Since 8.9 the env secret provider only exposes SECRET_-prefixed variables as
+      # {{secrets.NAME}} (docs: connectors configuration). Referenced by the v5 model.
+      SECRET_FX_BASE_URL: ${FX_BASE_URL}
+      SECRET_KAFKA_BOOTSTRAP: kafka:29092
     mem_limit: 1536m
     restart: unless-stopped
     healthcheck:

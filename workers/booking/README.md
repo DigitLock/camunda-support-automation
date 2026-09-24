@@ -18,7 +18,7 @@ compose profile (ADR-006).
 
 | Booking API outcome | Job action |
 |---|---|
-| 2xx | complete with `{bookingStatus: <status from the response>}` |
+| 2xx | complete with `{bookingStatus}`; for `booking.cancel` additionally `{refundAmount, refundCurrency}` — the booking's value and currency from the API response |
 | 404, or `bookingRef` missing/null | BPMN error `BOOKING_NOT_FOUND` |
 | 5xx or client timeout (10 s) | fail with `retries - 1` and an error message |
 
@@ -29,7 +29,7 @@ SIGTERM stops activation, waits up to 25 s for in-flight jobs (compose `stop_gra
 is 30 s) and exits 0. `/healthz` on :8081 returns 200 while the last successful poll is
 younger than 60 s; the compose healthcheck runs `/app -check` (scratch image, no shell).
 One log line per event (`activated` / `completed` / `failed` / `error`) with jobKey, type
-and bookingId.
+and bookingRef.
 
 ## Local dev run (against the stand)
 

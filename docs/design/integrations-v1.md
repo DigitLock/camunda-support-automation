@@ -20,7 +20,14 @@ Listeners: `INTERNAL` `kafka:29092` for connectors and workers inside the compos
 `EXTERNAL` host port `9092`, advertised address from `STAND_IP` (`infra/.env`) for clients
 outside the VM. Topics are created by the one-shot `kafka-init` container.
 
-Connector wiring (element templates, message mapping, error handling): to be designed in 4.2.
+Connector wiring (process v5, step 4.3): the Kafka Message Start Event Connector is the
+**only** way an instance starts, and `publish-resolved` produces the outcome — exact element
+properties in `process-v1.md`, "v5 changes".
+
+| ID | Decision | Rationale |
+|---|---|---|
+| D4-4 | The Kafka start event connector replaces REST message publication as the only process entry | One entry path, one dedup mechanism; the e2e producer becomes a real external system |
+| D4-5 | Dedup key is the `messageId` field of the event payload, connector expression `=value.messageId`; Message TTL `PT1H` | The producer controls idempotency (`<ticketId>-<runId>`); the TTL bounds the dedup window so deliberate re-sends (incident drills) work after an hour |
 
 ## 2. Booking API
 
@@ -42,7 +49,23 @@ interface — currently frankfurter.app (ECB rates, no RSD, needs outbound inter
 to the shared currency-rate-service is parked in `docs/backlog.md` and does not change the
 contract.
 
-## 4. Workers (Phase 4.2)
+Same-currency short-circuit: `from == to` returns `rate: 1`, `converted = amount`, `asOf` =
+today, **without a provider call** — EUR-only tickets work offline and any currency code is
+accepted when it converts to itself.
+
+Process v5 uses two conversions: `convert-booking-value` (booking `currency` → EUR →
+`bookingValueEur`, the `sla-policy` DMN input per D3-7) and `convert-refund` (see Refund).
+
+## 4. Refund
+
+`booking.cancel` completes with `refundAmount` (= the booking's `value`) and
+`refundCurrency` (= the booking's `currency`) taken from the Booking API response. The
+process then converts the refund into the customer's payout currency:
+`convert-refund` calls the FX gateway with `from=refundCurrency`, `to=customerCurrency`,
+`amount=refundAmount` and stores `refundAmountCustomer`. Same-currency refunds hit the
+short-circuit and stay deterministic.
+
+## 5. Workers (Phase 4.2)
 
 `workers/booking` (Go, stdlib, REST API v2 long polling) serves `booking.change` and
 `booking.cancel`; the Python stub keeps `ticket.classify`, `ticket.answer`, `ticket.notify`.
@@ -55,7 +78,7 @@ unchanged against the Phase 2 stub, plus `bookingStatus` from the Booking API re
 | D4-2 | One binary serves both booking job types | Same dependency, same error contract; two polling loops inside one process cost less than two containers |
 | D4-3 | `/healthz` is age-based: 200 while the last successful activation poll (empty responses count) is < 60 s old | A worker that cannot reach the engine is unhealthy even though its process lives; job timeout 60 s covers the mock API's 30 s injected delay |
 
-## 5. Idempotency
+## 6. Idempotency
 
 To be designed in 4.2–4.3. Established pieces so far:
 

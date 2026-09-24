@@ -175,6 +175,10 @@ the same job types.
   address before running anything Kafka-related from the workstation.
 - **The FX gateway depends on the public frankfurter.app API** (ECB reference rates):
   outbound internet access is required, RSD is not supported, rates update once per day.
+  Because the ECB rate moves daily, the D3-7 currency demo (ticket T-1007: 1050 USD →
+  `priority = normal`) stays deterministic only while USD/EUR < 0.952 — comfortably within
+  the historical range, but a fact to know when a distant-future run suddenly flips it to
+  `high`.
 - **`make deploy` does not use `--wait`**: `docker compose up --wait` treats the
   successfully exited one-shot `kafka-init` container as a failure when no service depends
   on it (docker/compose#10596). Health gating relies on `depends_on` conditions; check

@@ -73,12 +73,22 @@ func convertHandler(provider RateProvider) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "amount must be a positive number")
 			return
 		}
-		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-		defer cancel()
-		rate, asOf, err := provider.Rate(ctx, from, to)
-		if err != nil {
-			writeError(w, http.StatusBadGateway, err.Error())
-			return
+		var (
+			rate float64
+			asOf string
+		)
+		if from == to {
+			// same-currency short-circuit: no provider call (D4, docs/design/integrations-v1.md)
+			rate, asOf = 1, time.Now().UTC().Format("2006-01-02")
+		} else {
+			ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+			defer cancel()
+			var err error
+			rate, asOf, err = provider.Rate(ctx, from, to)
+			if err != nil {
+				writeError(w, http.StatusBadGateway, err.Error())
+				return
+			}
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"from":      from,
