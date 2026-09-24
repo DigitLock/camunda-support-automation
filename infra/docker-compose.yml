@@ -186,6 +186,28 @@ services:
     networks:
       - camunda
 
+  postgres: # LLM audit + analytics storage (D5-3, ADR-002 analytics path)
+    image: postgres:17.11-alpine
+    container_name: postgres
+    profiles: ["integrations"]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in infra/.env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in infra/.env}
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in infra/.env}
+    mem_limit: 512m
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - camunda
+
   smoke: # own profile so `up` never starts it; `docker compose run --rm --no-deps smoke`
          # activates the profile implicitly
     image: curlimages/curl:8.16.0
@@ -229,16 +251,22 @@ services:
     networks:
       - camunda
 
-  worker-stub:
-    build: ../workers/stub
-    image: worker-stub:local
-    container_name: worker-stub
+  worker-llm-classifier:
+    build: ../workers/llm-classifier
+    image: worker-llm-classifier:local
+    container_name: worker-llm-classifier
     profiles: ["workers"]
     env_file:
-      - ../workers/stub/.env
+      - ../workers/llm-classifier/.env
     environment:
-      # overrides the venv-oriented localhost value from the env_file
+      # overrides the venv-oriented localhost values from the env_file
       CAMUNDA_BASE_URL: http://orchestration:8080
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in infra/.env}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?set ANTHROPIC_API_KEY in infra/.env}
+      LLM_MODEL_CLASSIFY: ${LLM_MODEL_CLASSIFY:-claude-haiku-4-5}
+      LLM_MODEL_GENERATE: ${LLM_MODEL_GENERATE:-claude-sonnet-5}
+      CLASSIFY_CONFIDENCE_THRESHOLD: ${CLASSIFY_CONFIDENCE_THRESHOLD:-0.8}
+      CLASSIFY_PROMPT_VERSION: ${CLASSIFY_PROMPT_VERSION:-classify_v1}
     mem_limit: 256m
     restart: unless-stopped
     stop_grace_period: 30s
@@ -251,6 +279,8 @@ services:
     depends_on:
       orchestration:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
     networks:
       - camunda
 
@@ -258,6 +288,7 @@ volumes:
   camunda:
   elastic:
   kafka-data:
+  postgres-data:
 
 networks:
   camunda:

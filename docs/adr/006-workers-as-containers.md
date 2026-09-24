@@ -31,7 +31,7 @@ stand must come up from the repository alone (ADR-001).
 - Core services carry no `profiles:` key, so plain `docker compose up -d` still works
   unchanged (install guide, upgrade lab).
 - Until Phase 4.2 the stub worker remains a venv process — the one exception, documented in
-  its README.
+  its README. (The stub was renamed to `workers/llm-classifier` in Phase 5.)
 
 ## Revisit when
 

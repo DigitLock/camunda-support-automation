@@ -7,7 +7,7 @@ v5 the `sla-policy` input is `bookingValueEur`) via
 `POST /v2/decision-definitions/evaluation` and compares `team`, `priority`, `slaHours`
 and `requiredChecks` (as a set).
 
-Environment contract is the same as `tests/e2e` and `workers/stub`:
+Environment contract is the same as `tests/e2e` and `workers/llm-classifier`:
 
 ```bash
 export CAMUNDA_BASE_URL=http://localhost:8080   # or the stand's address

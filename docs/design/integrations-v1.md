@@ -68,7 +68,8 @@ short-circuit and stay deterministic.
 ## 5. Workers (Phase 4.2)
 
 `workers/booking` (Go, stdlib, REST API v2 long polling) serves `booking.change` and
-`booking.cancel`; the Python stub keeps `ticket.classify`, `ticket.answer`, `ticket.notify`.
+`booking.cancel`; the Python worker keeps `ticket.classify`, `ticket.answer`, `ticket.notify`
+(named `workers/stub` in Phase 4, renamed to `workers/llm-classifier` in Phase 5).
 Both run as containers in the `workers` compose profile (ADR-006). Output variables are
 unchanged against the Phase 2 stub, plus `bookingStatus` from the Booking API response.
 
@@ -90,7 +91,7 @@ sequenceDiagram
     participant K as Kafka
     participant C as Connectors runtime
     participant Z as Orchestration Cluster
-    participant S as worker-stub
+    participant S as worker-llm-classifier (worker-stub in Phase 4)
     participant FX as fx-gateway
     participant B as worker-booking
     participant API as booking-api

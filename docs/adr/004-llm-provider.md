@@ -1,7 +1,13 @@
 # ADR-004: LLM provider for ticket classification
 
-- **Status:** Accepted (model ID is pinned at the start of Phase 5)
+- **Status:** Accepted
 - **Date:** 2026-09-21
+- **Amended 2026-09-24 (Phase 5.0):** models pinned as aliases — `claude-haiku-4-5` for
+  classification, `claude-sonnet-5` for customer-facing generation (D5-1,
+  `docs/design/llm-classifier-v1.md`); the exact model id of every call is recorded in the
+  audit table from the API response. Ollama definitively rejected: no local models on the
+  homelab (owner decision); the provider abstraction stays, so a second provider remains a
+  configuration change.
 
 ## Context
 

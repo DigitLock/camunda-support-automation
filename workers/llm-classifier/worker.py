@@ -1,12 +1,13 @@
-"""Stub worker: subscribes to the remaining Python job types with the official SDK.
+"""LLM classifier worker (Phase 5): serves ticket.classify, ticket.answer, ticket.notify.
 
-Job types: ticket.classify, ticket.answer, ticket.notify (routing → DMN in Phase 3,
-booking.* → the Go worker in Phase 4). Runs as a container in the `workers` compose
-profile (ADR-006); a local venv run stays available as the dev fallback (README).
+Phase 5.1 skeleton: the handlers still run the deterministic rules (rules.py) — no LLM
+calls yet — but every ticket.classify is audited to PostgreSQL (audit.py, D5-3) and the
+output carries classifierSource / promptVersion. The Claude provider (llm/provider.py)
+is wired in Phase 5.2. Design: docs/design/llm-classifier-v1.md.
 
-Configuration via environment (design §7): CAMUNDA_BASE_URL, CAMUNDA_USER, CAMUNDA_PASSWORD.
-The names are mapped onto the SDK's own configuration keys below, so the contract stays the
-design's while the SDK keeps its documented settings.
+Configuration via environment: CAMUNDA_BASE_URL, CAMUNDA_USER, CAMUNDA_PASSWORD,
+DATABASE_URL (required); LLM_MODEL_CLASSIFY, LLM_MODEL_GENERATE, ANTHROPIC_API_KEY,
+CLASSIFY_CONFIDENCE_THRESHOLD, CLASSIFY_PROMPT_VERSION (used from 5.2 on).
 """
 
 import asyncio
@@ -16,12 +17,16 @@ import os
 import signal
 import sys
 import threading
+import time
 
 from camunda_orchestration_sdk import CamundaAsyncClient, WorkerConfig
 
+import audit
 from handlers import HANDLERS
 
-log = logging.getLogger("stub-worker")
+log = logging.getLogger("llm-classifier")
+
+PROMPT_VERSION = os.environ.get("CLASSIFY_PROMPT_VERSION", "classify_v1")
 
 
 def require_env(name: str) -> str:
@@ -31,10 +36,29 @@ def require_env(name: str) -> str:
     return value
 
 
-def make_callback(job_type: str, handler):
+def make_callback(job_type: str, handler, auditor: audit.Audit):
     async def callback(job) -> dict:
         variables = job.variables.to_dict() if job.variables else {}
+        started = time.monotonic()
         result = handler(variables)
+        if job_type == "ticket.classify":
+            # 5.1: rules-based fallback is the only path; LLM arrives in 5.2 (D5-2)
+            result["classifierSource"] = "fallback"
+            result["promptVersion"] = PROMPT_VERSION
+            # mandatory audit — an exception here fails the job on purpose (D5-3)
+            auditor.write_classify(
+                ticket_id=str(variables.get("ticketId")),
+                run_id=variables.get("runId"),
+                model="fallback",
+                prompt_version="rules",
+                subject=variables.get("subject") or "",
+                body=variables.get("body") or "",
+                output=result,
+                confidence=result.get("confidence"),
+                needs_review=result.get("needsReview"),
+                fallback_used=True,
+                latency_ms=int((time.monotonic() - started) * 1000),
+            )
         log.info("job=%s ticketId=%s -> %s", job_type, variables.get("ticketId"), result)
         return result
 
@@ -58,6 +82,9 @@ def start_health_server() -> None:
 
 
 async def main() -> None:
+    auditor = audit.from_env()
+    auditor.connect_with_retry()
+
     client = CamundaAsyncClient(
         configuration={
             "CAMUNDA_REST_ADDRESS": require_env("CAMUNDA_BASE_URL"),
@@ -69,10 +96,10 @@ async def main() -> None:
     for job_type, handler in HANDLERS.items():
         client.create_job_worker(
             config=WorkerConfig(job_type=job_type, job_timeout_milliseconds=30_000),
-            callback=make_callback(job_type, handler),
+            callback=make_callback(job_type, handler, auditor),
         )
     start_health_server()
-    log.info("polling job types: %s", ", ".join(HANDLERS))
+    log.info("polling job types: %s (prompt version %s)", ", ".join(HANDLERS), PROMPT_VERSION)
 
     # SIGTERM (compose stop) cancels run_workers(), which stops all pollers cleanly.
     loop = asyncio.get_running_loop()

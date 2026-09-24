@@ -12,7 +12,7 @@
 #   send-tickets.sh --manual-user-tasks publish, print user task keys for Tasklist, exit
 #   send-tickets.sh --check             verify the most recent run (reads .last-run)
 #
-# Env contract (same as workers/stub): CAMUNDA_BASE_URL, CAMUNDA_USER, CAMUNDA_PASSWORD.
+# Env contract (same as workers/llm-classifier): CAMUNDA_BASE_URL, CAMUNDA_USER, CAMUNDA_PASSWORD.
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -26,7 +26,7 @@ POLL_INTERVAL=2
 
 for var in CAMUNDA_BASE_URL CAMUNDA_USER CAMUNDA_PASSWORD; do
   if [ -z "${!var:-}" ]; then
-    echo "error: $var is not set (same contract as workers/stub, see its .env.example)" >&2
+    echo "error: $var is not set (same contract as workers/llm-classifier, see its .env.example)" >&2
     exit 1
   fi
 done

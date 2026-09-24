@@ -150,19 +150,33 @@ The "Non-production license" and "Non-commercial license" badges in the header a
 ## Workers
 
 Since Phase 4.2 the job workers run as containers in the `workers` compose profile
-(`worker-booking`, `worker-stub`), built on the VM by `make deploy`. The `workers` profile
-**cannot start on its own**: its services `depends_on` `booking-api` from the
-`integrations` profile. Both profiles are activated permanently via
-`COMPOSE_PROFILES=integrations,workers` in `infra/.env` (see `.env.example`), so a plain
-`docker compose up -d --build` — and every other compose command — sees all services:
+(`worker-booking`, `worker-llm-classifier` — named `worker-stub` until Phase 5), built on
+the VM by `make deploy`. The `workers` profile **cannot start on its own**: its services
+`depends_on` `booking-api` from the `integrations` profile. Both profiles are activated
+permanently via `COMPOSE_PROFILES=integrations,workers` in `infra/.env` (see
+`.env.example`), so a plain `docker compose up -d --build` — and every other compose
+command — sees all services:
 
 ```bash
 docker compose up -d --build
 ```
 
-The venv run of the stub worker (`workers/stub/README.md`) remains available as a dev
-fallback — never run it and the `worker-stub` container at the same time, they compete for
-the same job types.
+The venv run of the classifier worker (`workers/llm-classifier/README.md`) remains
+available as a dev fallback — never run it and the container at the same time, they
+compete for the same job types.
+
+Phase 5 adds PostgreSQL (`postgres` service, profile `integrations`) for the LLM audit:
+schema comes from `infra/postgres/init/` on the first start of an empty volume; the worker
+needs `DATABASE_URL` in `infra/.env`, and **its password must match `POSTGRES_PASSWORD`**
+in the same file. After the Phase 5 rename, one-time steps on the VM:
+
+```bash
+mv /opt/camunda-support-automation/workers/stub/.env \
+   /opt/camunda-support-automation/workers/llm-classifier/.env
+rm -rf /opt/camunda-support-automation/workers/stub    # rsync excludes keep it alive otherwise
+docker compose up -d --build --remove-orphans          # without --remove-orphans the old
+                                                       # worker-stub keeps polling the same job types
+```
 
 ## Limitations (accepted for this stand)
 

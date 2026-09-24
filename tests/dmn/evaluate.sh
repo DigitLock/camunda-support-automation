@@ -16,7 +16,7 @@ EXPECTED_DECISIONS=4
 
 for var in CAMUNDA_BASE_URL CAMUNDA_USER CAMUNDA_PASSWORD; do
   if [ -z "${!var:-}" ]; then
-    echo "error: $var is not set (same contract as tests/e2e and workers/stub)" >&2
+    echo "error: $var is not set (same contract as tests/e2e and workers/llm-classifier)" >&2
     exit 1
   fi
 done

@@ -53,11 +53,11 @@ flowchart LR
             kafka["Kafka (KRaft, single node)"]
             bookingapi["booking-api (Go, mock)"]
             fxgw["fx-gateway (Go)"]
-            pg[("PostgreSQL<br/>audit + analytics — Phase 5+")]
+            pg[("PostgreSQL<br/>LLM audit + analytics")]
         end
         subgraph workers["workers profile"]
             wbooking["worker-booking (Go)"]
-            wstub["worker-stub (Python SDK<br/>→ LLM classifier, Phase 5)"]
+            wclassifier["worker-llm-classifier<br/>(Python SDK)"]
         end
         subgraph monitoring["monitoring profile"]
             prom["Prometheus"]
@@ -71,9 +71,9 @@ flowchart LR
     fxgw --> ecb
     wbooking -- "REST v2: long-poll jobs" --> camunda
     wbooking -- "HTTP/JSON" --> bookingapi
-    wstub -- "REST v2: long-poll jobs" --> camunda
-    wstub -. "Phase 5" .-> claude
-    wstub -. "Phase 5: audit" .-> pg
+    wclassifier -- "REST v2: long-poll jobs" --> camunda
+    wclassifier -. "Phase 5.2" .-> claude
+    wclassifier -- "audit" --> pg
     camunda --> es
     connectors --> camunda
     prom --> camunda
@@ -91,7 +91,7 @@ processes/          BPMN models
 decisions/          DMN models
 forms/              Camunda Forms
 connectors/         Connector templates and configuration
-workers/            Job workers: booking (Go), stub (Python, → LLM classifier in Phase 5)
+workers/            Job workers: booking (Go), llm-classifier (Python)
 services/           Mock Booking API + FX gateway (Go)
 prompts/            Versioned classifier prompts with labelled test set
 tests/              DMN and classification test cases

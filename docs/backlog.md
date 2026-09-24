@@ -25,6 +25,17 @@ Ideas parked here to keep the current phase focused. Each entry names the phase 
    - **Phase 5 — Normalise `slaDeadline` (D3-11) — now mandatory.** The zoned date-time
      format (`...Z[GMT]`) no longer stays internal: since process v6 it leaves the stand in
      `support.ticket.resolved` events, so external consumers see a non-ISO value.
-   - **After Phase 8 — Camunda Non-Commercial License application.** The stand currently runs
+   - **After Phase 8 — Camunda Non-Commercial License application.**
+
+## Phase 5 milestones
+
+| Step | Scope | Status |
+|---|---|---|
+| 5.0 | Design decisions D5-1…D5-6 (`docs/design/llm-classifier-v1.md`), ADR-004 amendment | done |
+| 5.1 | PostgreSQL + audit schema, worker rename to `workers/llm-classifier`, audit-writing skeleton, provider interface, smoke | done (acceptance run pending) |
+| 5.2 | Claude classify call, JSON-schema guardrails, retry + fallback, threshold calibration (`tests/classification/report.sh`) | planned |
+| 5.3 | Process v7: review loop re-routes (D5-4), `classification_review` writes — Modeler by the owner | planned |
+| 5.4 | LLM `ticket.answer` (grounded in `prompts/kb_tourism.md`) and `ticket.notify` (D5-5) | planned |
+| 5.5 | Acceptance, docs, screenshots | planned | The stand currently runs
      without a key ("Non-Production License" banner). Apply for the non-commercial license and
      add the key through the environment once the project is published.

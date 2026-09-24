@@ -171,7 +171,7 @@ Idempotency comes from the publisher side: the engine does not create a new inst
 
 One Python process (Python SDK per ADR-003) subscribed to all six job types in Phase 2; since Phase 3 routing lives in DMN (see `routing-v1.md`), and since Phase 4.2 the booking types run in the Go worker (`workers/booking/`) — the stub serves three: `ticket.classify`, `ticket.answer`, `ticket.notify`. This was a deliberate, temporary deviation from ADR-003's Go-for-integration split: it kept Phase 2 to a single moving part. (The Phase 2 plan had `ticket.answer` moving to Go as well; in the event it stayed in the stub.) `ticket.classify` and `ticket.notify` stay in Python for Phase 5.
 
-Location: `workers/stub/`. Configuration via env: `CAMUNDA_BASE_URL`, `CAMUNDA_USER`, `CAMUNDA_PASSWORD`. No secrets in the repo.
+Location: `workers/stub/` (renamed to `workers/llm-classifier/` in Phase 5). Configuration via env: `CAMUNDA_BASE_URL`, `CAMUNDA_USER`, `CAMUNDA_PASSWORD`. No secrets in the repo.
 
 Deterministic behaviour, keyed on `subject` (case-insensitive):
 
