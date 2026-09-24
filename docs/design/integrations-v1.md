@@ -20,9 +20,9 @@ Listeners: `INTERNAL` `kafka:29092` for connectors and workers inside the compos
 `EXTERNAL` host port `9092`, advertised address from `STAND_IP` (`infra/.env`) for clients
 outside the VM. Topics are created by the one-shot `kafka-init` container.
 
-Connector wiring (process v5, step 4.3): the Kafka Message Start Event Connector is the
-**only** way an instance starts, and `publish-resolved` produces the outcome — exact element
-properties in `process-v1.md`, "v5 changes".
+Connector wiring (since process v5, step 4.3): the Kafka Message Start Event Connector is
+the **only** way an instance starts, and `publish-resolved` produces the outcome — exact
+element properties in `process-v1.md`, "v5→v6 changes".
 
 | ID | Decision | Rationale |
 |---|---|---|
@@ -53,7 +53,7 @@ Same-currency short-circuit: `from == to` returns `rate: 1`, `converted = amount
 today, **without a provider call** — EUR-only tickets work offline and any currency code is
 accepted when it converts to itself.
 
-Process v5 uses two conversions: `convert-booking-value` (booking `currency` → EUR →
+Since process v5 the model uses two conversions: `convert-booking-value` (booking `currency` → EUR →
 `bookingValueEur`, the `sla-policy` DMN input per D3-7) and `convert-refund` (see Refund).
 
 ## 4. Refund
@@ -153,7 +153,25 @@ sequenceDiagram
     end
 ```
 
-## 7. Idempotency
+## 7. Screenshots
+
+Evidence per decision, all under `docs/assets/phase-4/`:
+
+| Decision / topic | Screenshot |
+|---|---|
+| D4-4/D4-5 — Kafka start event as the only entry, messageId dedup, TTL PT1H | `modeler-kafka-start-event.png` (full connector panel: bootstrap secret, topic, group ID, Message ID expression, TTL, result expression) |
+| Booking-value conversion wiring | `modeler-gw-has-booking-value.png` (gateway + convert + route section with the panel), `modeler-flow-condition-booking-value.png` (`bookingValue != null` condition and the default-flow marker) |
+| REST connector for FX | `modeler-rest-convert-refund.png` (URL expression with secrets, result expression `refundAmountCustomer`) |
+| Kafka outbound | `modeler-kafka-publish-resolved.png` (topic, key `=ticketId`, JSON value expression; schema-strategy dropdown open) |
+| D3-7 closure in DMN v3 | `modeler-dmn-sla-policy.png` (`sla-policy` table, input expression `bookingValueEur`) |
+| Process v6 overview | `modeler-process-v6.png` |
+| D4-6, the incident | `operate-incident-convert-refund.png` (v5 instance, "No retries left" at Convert refund) |
+| D4-6, local scope | `operate-variables-url-null.png` (connector-local variables, `url: null`) |
+| D4-6, missing process-scope variables | `operate-variables-process-scope.png` (process scope without the refund variables) |
+| Completed T-1002 with refund variables | `operate-t1002-completed.png` |
+| Deployed versions (process v6, DMN v3) | `operate-process-versions.png` |
+
+## 8. Idempotency
 
 The producer owns idempotency: every `support.ticket.created` event carries a `messageId`
 (`<ticketId>-<runId>` in the e2e set), and the Kafka start event connector uses it as the

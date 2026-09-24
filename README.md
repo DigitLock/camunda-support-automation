@@ -1,13 +1,13 @@
 # Camunda Support Automation
 
-Status: Phase 4 in progress — integrations infrastructure (Kafka, mock Booking API, FX
-gateway; step 4.1) and job workers as containers (Go booking worker + containerised stub;
-step 4.2, ADR-006).
+Status: Phase 4 done — Integrations (Kafka in/out via Connectors, FX via REST connectors,
+Go booking worker, workers as containers); process v6, DMN v3, e2e 7/7 over Kafka.
 
 Phase 2 — process `support-request-v1` at version 3 (v1 happy path; v2 misrouted
 at a single gateway; v3 with a separate needs-review gateway, see
 [docs/design/process-v1.md](docs/design/process-v1.md), D2-7), two linked Camunda forms, Python
-stub worker, e2e script — 5/5 tickets pass in unattended and manual modes. Screenshots in
+stub worker, e2e script — 5/5 tickets passed in unattended and manual modes (Phase 2
+acceptance; 7 tickets since Phase 4). Screenshots in
 [docs/assets/phase-2/](docs/assets/phase-2/): `modeler-support-request-v3.png`,
 `operate-process-v1.png`, `operate-process-v3.png`, `operate-t0001-happy-path.png`,
 `operate-t0004-waiting-review.png`, `operate-t0004-review-loop.png`,
@@ -21,7 +21,8 @@ a literal expression), `route-ticket` is a business rule task since process vers
 stub worker no longer contains routing rules (see
 [docs/design/routing-v1.md](docs/design/routing-v1.md)). Ticket T-1006 demonstrates a rule the
 code never had — `sentiment = "negative"` alone raises priority to `high`. Tests: DMN matrix
-17/17 (`tests/dmn/`), e2e 6/6 in both modes (`tests/e2e/`). Two observations worth knowing:
+17/17, e2e 6/6 in both modes at the Phase 3 acceptance (18 cases / 7 tickets since
+Phase 4 — `tests/dmn/`, `tests/e2e/`). Two observations worth knowing:
 the DMN result variable `routing` exists only at the `route-ticket` task scope — the process
 sees just the fields copied out by output mappings; and `tests/dmn/evaluate.sh` calls show up
 in Operate → Decisions as standalone evaluations with Process Instance Key = -1. Screenshots
@@ -39,7 +40,7 @@ instance migration and a rehearsed minor upgrade. The stand comes up from this r
 flowchart LR
     subgraph external["External"]
         claude["Claude API"]
-        fx["FX rate service"]
+        ecb["frankfurter.app (ECB rates)"]
     end
 
     subgraph vm["Single VM — Docker Compose"]
@@ -50,12 +51,13 @@ flowchart LR
         end
         subgraph integrations["integrations profile"]
             kafka["Kafka (KRaft, single node)"]
-            bridge["kafka-bridge (Go)"]
-            booking["booking-adapter (Go)"]
-            notifier["notifier (Go)"]
-            mockapi["mock Booking API (Go)"]
-            classifier["llm-classifier (Python SDK)"]
-            pg[("PostgreSQL<br/>audit + analytics")]
+            bookingapi["booking-api (Go, mock)"]
+            fxgw["fx-gateway (Go)"]
+            pg[("PostgreSQL<br/>audit + analytics — Phase 5+")]
+        end
+        subgraph workers["workers profile"]
+            wbooking["worker-booking (Go)"]
+            wstub["worker-stub (Python SDK<br/>→ LLM classifier, Phase 5)"]
         end
         subgraph monitoring["monitoring profile"]
             prom["Prometheus"]
@@ -63,24 +65,23 @@ flowchart LR
         end
     end
 
-    kafka -- "support.ticket.created" --> bridge
-    notifier -- "support.ticket.resolved" --> kafka
-    bridge -- "REST v2: publish message" --> camunda
-    classifier -- "REST v2: long-poll jobs" --> camunda
-    classifier --> claude
-    classifier -- "audit" --> pg
-    booking -- "REST v2: long-poll jobs" --> camunda
-    booking -- "HTTP/JSON" --> mockapi
-    notifier -- "REST v2: long-poll jobs" --> camunda
+    kafka -- "support.ticket.created (inbound connector)" --> connectors
+    connectors -- "support.ticket.resolved (outbound connector)" --> kafka
+    connectors -- "REST /convert" --> fxgw
+    fxgw --> ecb
+    wbooking -- "REST v2: long-poll jobs" --> camunda
+    wbooking -- "HTTP/JSON" --> bookingapi
+    wstub -- "REST v2: long-poll jobs" --> camunda
+    wstub -. "Phase 5" .-> claude
+    wstub -. "Phase 5: audit" .-> pg
     camunda --> es
     connectors --> camunda
     prom --> camunda
     graf --> prom
-    connectors -- "REST connector" --> fx
 ```
 
 All clients use the **Orchestration Cluster REST API (v2)** with Basic auth; the gRPC port is not
-published. Go workers share a thin REST client in `workers/internal/camunda`.
+published. The Go booking worker carries its own thin REST client (`workers/booking/camunda.go`).
 
 ## Repository layout
 
@@ -90,8 +91,8 @@ processes/          BPMN models
 decisions/          DMN models
 forms/              Camunda Forms
 connectors/         Connector templates and configuration
-workers/            Job workers (Go) + llm-classifier (Python) + shared REST client
-services/           Mock Booking API
+workers/            Job workers: booking (Go), stub (Python, → LLM classifier in Phase 5)
+services/           Mock Booking API + FX gateway (Go)
 prompts/            Versioned classifier prompts with labelled test set
 tests/              DMN and classification test cases
 docs/               Design, ops guides, runbooks, analytics, ADRs
@@ -105,7 +106,7 @@ docs/               Design, ops guides, runbooks, analytics, ADRs
 | 1 | Platform | done |
 | 2 | Process v1 happy path | done |
 | 3 | DMN + FEEL | done |
-| 4 | Integrations | in progress |
+| 4 | Integrations | done |
 | 5 | LLM classifier with guardrails | planned |
 | 6 | Operations | planned |
 | 7 | Docs & analytics | planned |
@@ -117,6 +118,22 @@ One line per day: date — phase — done / broken / next.
 
 - 2026-09-21 — Phase 0 done, Phase 1 nearly done — VM + Docker; core stack (Camunda 8.9.21 / Connectors 8.9.12 / ES 8.19.11) up in under a minute; protected API with Basic auth and authorizations; smoke test via REST + Tasklist + Operate; install guide / ES yellow on single node (replicas 0); sysctl override lowered the Debian 13 default (removed); VM time zone (UTC); config edited but not synced before restart (make deploy) / install-from-scratch run against docs/ops/install.md, then Phase 2
 - 2026-09-22 — Phase 1 done — install-from-scratch run against docs/ops/install.md passed in <N> min; one doc gap (ssh config block was not a command) fixed / stand broke overnight before the run was finished (restarted from the clean snapshot) / Phase 2: process v1 happy path
+- 2026-09-24 — Phase 4 done — Kafka in/out via Connectors (messageId dedup, TTL PT1H), FX conversions via REST connectors, Go booking worker, workers as containers; process v6, DMN v3; e2e 7/7 over Kafka incl. dedup probe / v5 shipped without output mappings on branch tasks — convert-refund incident, fixed in v6 (D4-6) / Phase 5: LLM classifier
+
+## Run the e2e
+
+```bash
+brew install kcat                      # producer for the Kafka entry (once)
+export CAMUNDA_BASE_URL=http://<stand>:8080
+export CAMUNDA_USER=admin
+export CAMUNDA_PASSWORD=...            # from infra/.env on the stand
+export STAND_IP=<stand address>        # Kafka EXTERNAL listener, port 9092
+
+tests/e2e/send-tickets.sh              # 7 tickets + dedup probe, verify via REST
+tests/e2e/send-tickets.sh --check      # re-verify + consume support.ticket.resolved
+```
+
+Details and the manual (Tasklist) mode: `tests/e2e/README.md`.
 
 ## License note
 

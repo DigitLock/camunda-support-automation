@@ -29,6 +29,11 @@ Inputs (process variables at `route-ticket`):
 | `customerTier` | string | `premium` or `standard`, from the start message |
 | `bookingValue` | number or `null` | from the start message; **must always be present** (`null` allowed) — a missing variable fails the FEEL input expression with an incident |
 
+*Since Phase 4.3 (process v5+, DMN v3) the monetary input of the decision tables is
+`bookingValueEur`, produced by the process (`convert-booking-value`, `process-v1.md` §10);
+`null` when the ticket has no booking. The table above describes the original Phase 3 wiring
+(as of Phase 3).*
+
 Outputs (written by output mappings, §4):
 
 | Variable | Type | Source |
@@ -63,22 +68,22 @@ Row 4 covers `other` and any unexpected intent value.
 
 ### 3.2 `sla-policy` — decision table, hit policy FIRST
 
-Inputs: `customerTier`, `sentiment`, `bookingValue`. Rules are ordered: the first escalation condition that matches wins; the last row is the default.
+Inputs: `customerTier`, `sentiment`, `bookingValueEur` (named `bookingValue` until DMN v3). Rules are ordered: the first escalation condition that matches wins; the last row is the default.
 
-| # | customerTier | sentiment | bookingValue | → priority | slaHours |
+| # | customerTier | sentiment | bookingValueEur | → priority | slaHours |
 |---|---|---|---|---|---|
 | 1 | `"premium"` | – | – | `"high"` | 4 |
 | 2 | – | `"negative"` | – | `"high"` | 4 |
 | 3 | – | – | `> 1000` | `"high"` | 4 |
 | 4 | – | – | – | `"normal"` | 24 |
 
-`bookingValue = null` never matches row 3 (comparison with null is not true). Threshold 1000 is currency-agnostic in v1 (see D3-7).
+`bookingValueEur = null` never matches row 3 (comparison with null is not true). The threshold is in EUR since Phase 4.3 (see D3-7, closed).
 
 ### 3.3 `required-checks` — decision table, hit policy COLLECT
 
 Single output `check` (string); the result is the list of all matching rows, in rule order.
 
-| # | intent | customerTier | bookingValue | → check |
+| # | intent | customerTier | bookingValueEur | → check |
 |---|---|---|---|---|
 | 1 | `"change_booking"` | – | – | `"availability"` |
 | 2 | `"cancel_refund"` | – | – | `"refund-policy"` |
@@ -138,10 +143,10 @@ Every ticket must carry `bookingValue` in the message payload (`null` for questi
 ## 7. DMN test matrix (`tests/dmn/`)
 
 Acceptance requires ≥ 15 cases, all passing. Files:
-- `tests/dmn/cases.json` — array of `{ id, inputs: {intent, customerTier, sentiment, bookingValue}, expected: {team, priority, slaHours, requiredChecks} }`.
+- `tests/dmn/cases.json` — array of `{ id, inputs: {intent, customerTier, sentiment, bookingValueEur}, expected: {team, priority, slaHours, requiredChecks} }` (18 cases since Phase 4.3; both decision tables read `bookingValueEur`, DMN v3).
 - `tests/dmn/evaluate.sh` — for each case calls `POST /v2/decision-definitions/evaluation` (decision definition ID `route-ticket`, variables = inputs). The response carries the decision result in `output` as a JSON string, and the matched rules in `evaluatedDecisions[].matchedRules[].ruleIndex`. The script parses `output`, compares it with `expected` (`requiredChecks` compared as sets), prints PASS/FAIL per case and a summary. Uses the same `CAMUNDA_BASE_URL / CAMUNDA_USER / CAMUNDA_PASSWORD` as the e2e script.
 
-| ID | intent | tier | sentiment | bookingValue | team | priority | sla | requiredChecks |
+| ID | intent | tier | sentiment | bookingValueEur | team | priority | sla | requiredChecks |
 |---|---|---|---|---|---|---|---|---|
 | C01 | change_booking | standard | neutral | 500 | bookings | normal | 24 | availability |
 | C02 | change_booking | premium | neutral | 500 | bookings | high | 4 | availability, vip-handling |
@@ -160,14 +165,15 @@ Acceptance requires ≥ 15 cases, all passing. Files:
 | C15 | cancel_refund | standard | neutral | 1000.01 | refunds | high | 4 | refund-policy, manual-approval |
 | C16 | question | standard | neutral | 50 | support | normal | 24 | – |
 | C17 | unknown_intent | standard | neutral | null | escalation | normal | 24 | – |
+| C18 | change_booking | standard | neutral | 920 | bookings | normal | 24 | availability |
 
-C10 = T-1006. C14/C15 are the threshold boundary. C17 exercises the default row of `route-team`.
+C10 = T-1006. C14/C15 are the threshold boundary. C17 exercises the default row of `route-team`. C18 (added in Phase 4.3) is the D3-7 currency demo: 1050 USD converts to ≈ 920 EUR, below the threshold → `normal`.
 
 ## 8. Acceptance
 
 - [x] `decisions/routing-v1.dmn` deployed; Operate → Decisions lists `route-ticket`, `route-team`, `sla-policy`, `required-checks`.
 - [x] Process `support-request-v1` at version 4 with `route-ticket` as a business rule task.
-- [x] `tests/dmn/evaluate.sh` — 17/17 PASS.
+- [x] `tests/dmn/evaluate.sh` — 17/17 PASS (as of Phase 3; 18/18 since Phase 4.3, C18 added).
 - [x] `tests/e2e/send-tickets.sh` — 6/6 PASS in default and `--manual-user-tasks` modes (run `20260923T210154Z`, verified via `--check`), expectations for T-1001…T-1005 unchanged.
 - [x] Stub worker has no `ticket.route` handler; `grep -rn 'ticket.route' workers/` is empty.
 - [x] Screenshots in `docs/assets/phase-3/`: `modeler-drd.png`, `modeler-route-team.png`, `modeler-sla-policy.png`, `modeler-required-checks.png`, `modeler-route-ticket.png`, `modeler-bpmn-business-rule-task.png`, `operate-decision-evaluation.png` (T-1006: `sla-policy` matched rule 2, "Upset customer"), `operate-decision-evaluation-default.png` (T-1003: default rule 4), `operate-route-ticket-result.png` (local `routing` variable on the `route-ticket` task, T-1005), `operate-instance-v4.png` (T-1006, all process variables).
@@ -183,7 +189,7 @@ C10 = T-1006. C14/C15 are the threshold boundary. C17 exercises the default row 
 | D3-4 | `ticket.route` removed from the stub in the same commit | Dead code in a portfolio repo reads worse than a clean diff |
 | D3-5 | `slaDeadline` computed in the output mapping, not in DMN | Keeps the decision pure and re-evaluable; the date expression is required by the Phase 3 scope |
 | D3-6 | `requiredChecks` exposed as a variable but not consumed yet | Consumers arrive with real integrations (Phase 4) and the notification template (Phase 5) |
-| D3-7 | `bookingValue > 1000` ignores `currency` | v1 assumes a single settlement currency; converting via the Currency Rate Service is the Phase 4 hook |
+| D3-7 | `bookingValue > 1000` ignores `currency` — **closed in Phase 4.3**: the process converts to EUR (`convert-booking-value`) and both tables read `bookingValueEur` | v1 assumed a single settlement currency; the FX gateway closed the hook |
 | D3-8 | `route-team` uses FIRST with a catch-all row rather than UNIQUE | Unexpected intent values route to escalation instead of producing `null` and an incident |
 | D3-9 | `route-ticket` guards the COLLECT result: `if ... = null then [] else ...` | COLLECT with no matching rule returns `null`, not `[]`; without the guard `requiredChecks` would be `null` for tickets with no checks |
 | D3-10 | Decision wiring is asserted only by tests that compare all outputs | A decision left unwired in the DRD does not fail evaluation — its FEEL name silently resolves to `null`; nothing in deployment or Operate flags it |

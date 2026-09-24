@@ -163,9 +163,13 @@ The return from `gw-review-exit` enters `gw-intent` directly, after `gw-needs-re
 
 Idempotency comes from the publisher side: the engine does not create a new instance for a message start event while an active instance created with the same correlation key exists, and a message with the same name, correlation key and ID is rejected while a copy is buffered. Verified against the Camunda 8.9 messages concept page on 2026-09-22.
 
+*As of Phases 2–4.2. Since process v5 the only entry is the Kafka start event connector
+(D4-4, §10); REST message publication is not used anymore, and dedup rides on the payload's
+`messageId` with TTL PT1H (D4-5, `integrations-v1.md`).*
+
 ## 7. Phase 2 stub worker
 
-One Python process (Python SDK per ADR-003) subscribed to all six job types in Phase 2; since Phase 3 routing lives in DMN (see `routing-v1.md`) and the stub serves five. This is a deliberate, temporary deviation from ADR-003's Go-for-integration split: it keeps Phase 2 to a single moving part. Phase 4 moves `booking.change`, `booking.cancel` and `ticket.answer` to Go workers; `ticket.classify` and `ticket.notify` stay in Python for Phase 5.
+One Python process (Python SDK per ADR-003) subscribed to all six job types in Phase 2; since Phase 3 routing lives in DMN (see `routing-v1.md`), and since Phase 4.2 the booking types run in the Go worker (`workers/booking/`) — the stub serves three: `ticket.classify`, `ticket.answer`, `ticket.notify`. This was a deliberate, temporary deviation from ADR-003's Go-for-integration split: it kept Phase 2 to a single moving part. (The Phase 2 plan had `ticket.answer` moving to Go as well; in the event it stayed in the stub.) `ticket.classify` and `ticket.notify` stay in Python for Phase 5.
 
 Location: `workers/stub/`. Configuration via env: `CAMUNDA_BASE_URL`, `CAMUNDA_USER`, `CAMUNDA_PASSWORD`. No secrets in the repo.
 
@@ -203,12 +207,12 @@ Tickets 1, 2 and 4 carry `bookingRef`/`bookingValue`/`currency`; 3 and 5 send `n
 
 ## 9. Acceptance (Phase 2)
 
-- [ ] `support-request-v1` deployed from Desktop Modeler; version visible in Operate.
-- [ ] Stub worker running, all six job types polled (worker log).
-- [ ] Unattended run: `send-tickets.sh` exits 0; five completed instances in Operate, paths and `resolution` match §8, `notificationTemplate = notify-<resolution>`.
-- [ ] Manual run: `send-tickets.sh --manual-user-tasks`, tickets 4 and 5 completed in Tasklist, `send-tickets.sh --check` exits 0.
-- [ ] Screenshots in `docs/assets/phase-2/`: Operate diagram with all five paths highlighted (one per instance), variables panel of ticket 4, Tasklist form for tickets 4 and 5.
-- [ ] `docs/ops/install.md` updated with anything that broke (symptom → cause → fix).
+- [x] `support-request-v1` deployed from Desktop Modeler; version visible in Operate.
+- [x] Stub worker running, all six job types polled (worker log).
+- [x] Unattended run: `send-tickets.sh` exits 0; five completed instances in Operate, paths and `resolution` match §8, `notificationTemplate = notify-<resolution>`.
+- [x] Manual run: `send-tickets.sh --manual-user-tasks`, tickets 4 and 5 completed in Tasklist, `send-tickets.sh --check` exits 0.
+- [x] Screenshots in `docs/assets/phase-2/`: Operate diagram with all five paths highlighted (one per instance), variables panel of ticket 4, Tasklist form for tickets 4 and 5.
+- [x] `docs/ops/install.md` updated with anything that broke (symptom → cause → fix).
 
 ## 10. v5→v6 changes (Phase 4.3–4.4)
 
@@ -217,7 +221,8 @@ routing-v1 v3**. v5 was deployed with the output mappings of the branch tasks mi
 (D4-6 in `integrations-v1.md`) — v6 is the fix. Element IDs are load-bearing: the e2e path
 verification (`tests/e2e/tickets.json`) expects exactly these. Secrets referenced below
 exist as `SECRET_*` environment variables on the connectors container
-(`infra/docker-compose.yml`).
+(`infra/docker-compose.yml`). Screenshots of every panel referenced below are in
+`docs/assets/phase-4/` (overview: `modeler-process-v6.png`).
 
 New flow order: `start-ticket-created` → `classify-ticket` → `gw-has-booking-value` →
 (`convert-booking-value` | skip) → `route-ticket` → `gw-needs-review` → … (unchanged) …
@@ -226,14 +231,14 @@ New flow order: `start-ticket-created` → `classify-ticket` → `gw-has-booking
 
 | Element (id) | Type / template | Properties |
 |---|---|---|
-| `start-ticket-created` (keep the existing id) | Replace the plain message start event with **Kafka Message Start Event Connector** | Bootstrap servers: `{{secrets.KAFKA_BOOTSTRAP}}` · Topic: `support.ticket.created` · Authentication: `Custom` with empty username/password fields (= PLAINTEXT) · Consumer group ID: `camunda-support-request` · Auto offset reset: `latest` · **Message ID expression**: `=value.messageId` · **Message TTL**: `PT1H` (dedup window, D4-5) · Correlation key: leave empty (message start) · Result expression: `={ticketId: value.ticketId, customerId: value.customerId, customerTier: value.customerTier, subject: value.subject, body: value.body, language: value.language, bookingRef: value.bookingRef, bookingValue: value.bookingValue, currency: value.currency, customerCurrency: value.customerCurrency, runId: value.runId}` |
-| `gw-has-booking-value` | Exclusive gateway between `classify-ticket` and `route-ticket` | Flow to `convert-booking-value`: `=bookingValue != null` · default flow: straight to `route-ticket` |
+| `start-ticket-created` (keep the existing id) | Replace the plain message start event with **Kafka Message Start Event Connector** (`modeler-kafka-start-event.png`) | Bootstrap servers: `{{secrets.KAFKA_BOOTSTRAP}}` · Topic: `support.ticket.created` · Authentication: `Custom` with empty username/password fields (= PLAINTEXT) · Consumer group ID: `camunda-support-request` · Auto offset reset: `latest` · **Message ID expression**: `=value.messageId` · **Message TTL**: `PT1H` (dedup window, D4-5) · Correlation key: leave empty (message start) · Result expression: `={ticketId: value.ticketId, customerId: value.customerId, customerTier: value.customerTier, subject: value.subject, body: value.body, language: value.language, bookingRef: value.bookingRef, bookingValue: value.bookingValue, currency: value.currency, customerCurrency: value.customerCurrency, runId: value.runId}` |
+| `gw-has-booking-value` | Exclusive gateway between `classify-ticket` and `route-ticket` (`modeler-gw-has-booking-value.png`) | Flow to `convert-booking-value`: `=bookingValue != null` (`modeler-flow-condition-booking-value.png`) · default flow: straight to `route-ticket` |
 | `convert-booking-value` | Service task, **REST Outbound Connector** (HTTP JSON) | Method: `GET` · URL: `="{{secrets.FX_BASE_URL}}/convert?from=" + currency + "&to=EUR&amount=" + string(bookingValue)` · Authentication: none · Result expression: `={bookingValueEur: response.body.converted}` · Outgoing flow → `route-ticket` |
-| `convert-refund` | Service task, **REST Outbound Connector** (HTTP JSON), between `cancel-refund` and `notify-customer` | Method: `GET` · URL: `="{{secrets.FX_BASE_URL}}/convert?from=" + refundCurrency + "&to=" + customerCurrency + "&amount=" + string(refundAmount)` · Authentication: none · Result expression: `={refundAmountCustomer: response.body.converted}` |
-| `publish-resolved` | Service task, **Kafka Outbound Connector** ("Publish Message to Kafka"), between `notify-customer` and `end-resolved` | Bootstrap servers: `{{secrets.KAFKA_BOOTSTRAP}}` · Topic: `support.ticket.resolved` · Authentication: none · Serialization: JSON · Key: `=ticketId` · Value: `={ticketId: ticketId, resolution: resolution, team: team, priority: priority, slaDeadline: slaDeadline, refundAmountCustomer: refundAmountCustomer, runId: runId}` |
+| `convert-refund` | Service task, **REST Outbound Connector** (HTTP JSON), between `cancel-refund` and `notify-customer` (`modeler-rest-convert-refund.png`) | Method: `GET` · URL: `="{{secrets.FX_BASE_URL}}/convert?from=" + refundCurrency + "&to=" + customerCurrency + "&amount=" + string(refundAmount)` · Authentication: none · Result expression: `={refundAmountCustomer: response.body.converted}` |
+| `publish-resolved` | Service task, **Kafka Outbound Connector** ("Publish Message to Kafka"), between `notify-customer` and `end-resolved` (`modeler-kafka-publish-resolved.png`) | Bootstrap servers: `{{secrets.KAFKA_BOOTSTRAP}}` · Topic: `support.ticket.resolved` · Authentication: none · Serialization: JSON · Key: `=ticketId` · Value: `={ticketId: ticketId, resolution: resolution, team: team, priority: priority, slaDeadline: slaDeadline, refundAmountCustomer: refundAmountCustomer, runId: runId}` |
 | `cancel-refund` | Existing service task — **add output mappings** (v6, D4-6) | `=bookingStatus` → `bookingStatus`, `=refundAmount` → `refundAmount`, `=refundCurrency` → `refundCurrency` (the task's v1 `resolution` mapping makes all completion variables task-local, so the worker's variables must be mapped out explicitly) |
 | `change-booking` | Existing service task — **add output mapping** (v6, D4-6) | `=bookingStatus` → `bookingStatus` |
-| `sla-policy` and `required-checks` (DMN, `decisions/routing-v1.dmn`, v3) | Decision table inputs | Input expression `bookingValue` → `bookingValueEur` in **both** tables (D3-7; the DMN itself does not convert) |
+| `sla-policy` and `required-checks` (DMN, `decisions/routing-v1.dmn`, v3) | Decision table inputs (`modeler-dmn-sla-policy.png`) | Input expression `bookingValue` → `bookingValueEur` in **both** tables (D3-7; the DMN itself does not convert) |
 
 Removed with v5/v6: nothing — the REST publication path disappears operationally (D4-4),
 the model keeps the same single start event, now Kafka-backed.

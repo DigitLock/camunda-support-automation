@@ -29,8 +29,8 @@ to be revived only if connector semantics prove insufficient.
 - Delivery semantics are the connector's (at-least-once, connector-managed retries);
   idempotency has to be handled on the process side — design in
   `docs/design/integrations-v1.md`.
-- The README architecture sketch still shows a `kafka-bridge` worker; it gets corrected at
-  the Phase 4 close.
+- The README architecture sketch showed a `kafka-bridge` worker; corrected at the Phase 4
+  close (step 4.5).
 
 ## Revisit when
 

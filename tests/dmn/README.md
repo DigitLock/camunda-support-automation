@@ -14,7 +14,7 @@ export CAMUNDA_BASE_URL=http://localhost:8080   # or the stand's address
 export CAMUNDA_USER=admin
 export CAMUNDA_PASSWORD=...                     # from infra/.env on the stand
 
-./evaluate.sh    # PASS/FAIL per case, "N/17 cases passed", exit 1 on any FAIL
+./evaluate.sh    # PASS/FAIL per case, "N/18 cases passed", exit 1 on any FAIL
 ```
 
 A case FAILs when:
