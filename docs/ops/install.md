@@ -147,6 +147,22 @@ In a browser, log in as `admin` with `CAMUNDA_ADMIN_PASSWORD` from `infra/.env`:
 The "Non-production license" and "Non-commercial license" badges in the header are expected
 (see the README license note).
 
+## Limitations (accepted for this stand)
+
+- **Kafka runs without authentication or TLS** (PLAINTEXT on both listeners). Acceptable
+  only inside the stand; the EXTERNAL listener (host port 9092) must stay within the lab
+  network and never be exposed further.
+- **`STAND_IP` is required for external Kafka access.** The EXTERNAL listener advertises
+  `${STAND_IP}` from `infra/.env`; without the variable the stack still starts, but Kafka
+  advertises `127.0.0.1` and clients outside the VM cannot connect. Set it to the VM's
+  address before running anything Kafka-related from the workstation.
+- **The FX gateway depends on the public frankfurter.app API** (ECB reference rates):
+  outbound internet access is required, RSD is not supported, rates update once per day.
+- **`make deploy` does not use `--wait`**: `docker compose up --wait` treats the
+  successfully exited one-shot `kafka-init` container as a failure when no service depends
+  on it (docker/compose#10596). Health gating relies on `depends_on` conditions; check
+  `docker compose ps` after deploy instead.
+
 ## Troubleshooting
 
 Symptom → cause → fix entries are added here the moment something breaks during installation.

@@ -7,5 +7,7 @@ ifndef STAND_HOST
 endif
 	rsync -az --delete --exclude '.git' --exclude '.env' --exclude '.DS_Store' --exclude '.venv' --exclude '__pycache__' --exclude '*.pyc' ./ $(STAND_HOST):/opt/camunda-support-automation/
 
+# No --wait: it treats successfully exited one-shot containers (kafka-init) as failures
+# when nothing depends on them (docker/compose#10596); health gating stays on depends_on.
 deploy: sync
-	ssh $(STAND_HOST) 'cd /opt/camunda-support-automation/infra && docker compose up -d --wait'
+	ssh $(STAND_HOST) 'cd /opt/camunda-support-automation/infra && docker compose --profile integrations --profile workers up -d --build'

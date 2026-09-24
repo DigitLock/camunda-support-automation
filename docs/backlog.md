@@ -3,12 +3,14 @@
 Ideas parked here to keep the current phase focused. Each entry names the phase it could fit into.
 
 ## Parked ideas
-   - **Phase 4 — Currency Rate Service as the external FX dependency.** The service is gRPC-only
-     and not deployed yet. Work in its own repository: (1) `google.api.http` annotations and
-     grpc-gateway on the existing HTTP port, (2) multi-stage Dockerfile, (3) Compose deployment on
-     the shared Docker host with its own PostgreSQL (no published port) and migrations, (4) curl
-     verification. Consumed through `FX_BASE_URL`. Time-box: half a day; fallback — the REST
-     connector calls a public FX API directly.
+   - **FX — swap the fx-gateway `RateProvider` to the shared currency-rate-service**
+     (`FX_BASE_URL` / gRPC client) once that service is deployable; the `/convert` contract
+     stays unchanged, so the REST connector does not notice the switch.
+   - **currency-rate-service repository debt (tracked there, not here):** Dockerfile +
+     grpc-gateway (REST) + PostgreSQL/migrations/provider seeding — option (a) of the
+     2026-09-24 assessment, ~5–6 h.
+   - **Own Kafka consumer (Go)** — only if the Camunda Kafka connector's semantics prove
+     insufficient (DLQ, batching, transactional produce); see ADR-007.
    - **Phase 6 — Dedicated worker user instead of admin.** The Phase 2 stub worker (and until
      then any worker) authenticates as `admin`; create a `worker` user with only the needed
      authorizations and switch `CAMUNDA_USER` over.
