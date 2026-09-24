@@ -20,8 +20,9 @@ export CAMUNDA_PASSWORD=...                     # from infra/.env on the stand
 # verify paths + resolution + notificationTemplate, exit 0/1
 ./send-tickets.sh
 
-# acceptance run: publish, wait for tickets 4 and 5 to reach their user task, print the
-# task keys and exit; complete both in Tasklist, then verify:
+# acceptance run: --manual-user-tasks only publishes, waits for tickets 4 and 5 to reach
+# their user task, prints the task keys and exits — it verifies nothing. Complete both
+# tasks in Tasklist, then run the verification as a separate step:
 ./send-tickets.sh --manual-user-tasks
 ./send-tickets.sh --check
 ```
@@ -42,32 +43,19 @@ One `PASS`/`FAIL` line per ticket; exit code is non-zero if anything failed.
 
 ## Example run
 
-Unattended run:
+Verification output of run `20260923T210154Z` (six tickets, process v4 with DMN routing —
+identical closing step for the unattended and manual modes):
 
 ```
-run 20260922T212313Z: publishing ticket.created for 5 tickets
-published T-1001 … T-1005 (messageId <ticketId>-20260922T212313Z)
-completed user task review-classification for T-1004
-completed user task handle-by-agent for T-1005
-run 20260922T212313Z: verifying
-PASS T-1001: path ok, resolution=booking_changed, notificationTemplate=notify-booking_changed
-PASS T-1002: path ok, resolution=refund_issued, notificationTemplate=notify-refund_issued
-PASS T-1003: path ok, resolution=answered, notificationTemplate=notify-answered
-PASS T-1004: path ok, resolution=answered, notificationTemplate=notify-answered
-PASS T-1005: path ok, resolution=agent_handled, notificationTemplate=notify-agent_handled
+run 20260923T210154Z: verifying
+PASS T-1001: path ok, resolution=booking_changed, routing ok, slaDeadline=2026-09-24T21:01:54.413Z[GMT]
+PASS T-1002: path ok, resolution=refund_issued, routing ok, slaDeadline=2026-09-24T21:01:55.54Z[GMT]
+PASS T-1003: path ok, resolution=answered, routing ok, slaDeadline=2026-09-24T21:01:55.549Z[GMT]
+PASS T-1004: path ok, resolution=answered, routing ok, slaDeadline=2026-09-24T21:01:55.512Z[GMT]
+PASS T-1005: path ok, resolution=agent_handled, routing ok, slaDeadline=2026-09-24T01:01:55.526Z[GMT]
+PASS T-1006: path ok, resolution=answered, routing ok, slaDeadline=2026-09-24T01:01:55.561Z[GMT]
 all tickets passed
 ```
 
-Manual run:
-
-```
-$ tests/e2e/send-tickets.sh --manual-user-tasks
-run 20260922T212555Z: publishing ticket.created for 5 tickets
-T-1004 waits at review-classification — userTaskKey 2251799813709378
-T-1005 waits at handle-by-agent — userTaskKey 2251799813709400
-complete both in Tasklist, then run: send-tickets.sh --check
-$ tests/e2e/send-tickets.sh --check
-run 20260922T212555Z: verifying
-PASS T-1001 … PASS T-1005 (same five lines as above)
-all tickets passed
-```
+Note the deadlines: T-1005 and T-1006 are `priority = high`, so their `slaDeadline` is
+4 hours after the run; the other four get 24 hours.

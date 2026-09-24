@@ -1,7 +1,8 @@
 """Pure job handlers for the Phase 2 stub worker: dict of variables in, dict of variables out.
 
 No SDK imports — each function is portable to Go (Phase 4) one handler at a time.
-Behaviour follows docs/design/process-v1.md §5.2, §5.3, §5.6 and §7.
+Behaviour follows docs/design/process-v1.md §5.2, §5.6 and §7. Routing moved to DMN
+in Phase 3 (docs/design/routing-v1.md); the worker has no routing handler anymore.
 """
 
 from datetime import datetime, timezone
@@ -35,18 +36,6 @@ def classify_ticket(variables: dict) -> dict:
     }
 
 
-def route_ticket(variables: dict) -> dict:
-    team = rules.TEAM_BY_INTENT.get(variables.get("intent"), "escalation")
-    priority = (
-        "high" if variables.get("customerTier") == rules.PREMIUM_TIER else "normal"
-    )
-    return {
-        "team": team,
-        "priority": priority,
-        "slaHours": rules.SLA_HOURS[priority],
-    }
-
-
 def change_booking(variables: dict) -> dict:
     return {}
 
@@ -69,7 +58,6 @@ def notify_customer(variables: dict) -> dict:
 
 HANDLERS = {
     "ticket.classify": classify_ticket,
-    "ticket.route": route_ticket,
     "booking.change": change_booking,
     "booking.cancel": cancel_booking,
     "ticket.answer": answer_ticket,

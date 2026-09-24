@@ -1,6 +1,8 @@
 # Camunda Support Automation
 
-Status: Phase 2 done — process `support-request-v1` at version 3 (v1 happy path; v2 misrouted
+Status: Phase 3 done — routing moved from the stub worker into DMN, see below.
+
+Phase 2 — process `support-request-v1` at version 3 (v1 happy path; v2 misrouted
 at a single gateway; v3 with a separate needs-review gateway, see
 [docs/design/process-v1.md](docs/design/process-v1.md), D2-7), two linked Camunda forms, Python
 stub worker, e2e script — 5/5 tickets pass in unattended and manual modes. Screenshots in
@@ -11,6 +13,18 @@ stub worker, e2e script — 5/5 tickets pass in unattended and manual modes. Scr
 `tasklist-review-classification-form.png`, and from the manual run
 `tasklist-handle-by-agent-form.png` and `operate-completed-instances.png` (the
 handle-by-agent form in Tasklist and the completed instances list in Operate).
+
+Phase 3 — routing lives in DMN: DRD `routing-v1` of four decisions (three decision tables plus
+a literal expression), `route-ticket` is a business rule task since process version 4, and the
+stub worker no longer contains routing rules (see
+[docs/design/routing-v1.md](docs/design/routing-v1.md)). Ticket T-1006 demonstrates a rule the
+code never had — `sentiment = "negative"` alone raises priority to `high`. Tests: DMN matrix
+17/17 (`tests/dmn/`), e2e 6/6 in both modes (`tests/e2e/`). Two observations worth knowing:
+the DMN result variable `routing` exists only at the `route-ticket` task scope — the process
+sees just the fields copied out by output mappings; and `tests/dmn/evaluate.sh` calls show up
+in Operate → Decisions as standalone evaluations with Process Instance Key = -1. Screenshots
+in [docs/assets/phase-3/](docs/assets/phase-3/), e.g. `modeler-drd.png`,
+`operate-decision-evaluation.png`, `operate-instance-v4.png`.
 
 A customer support automation stand on **Camunda 8.9 Self-Managed**: a BPMN ticket process with
 DMN/FEEL routing, an LLM classifier with guardrails (Claude API, JSON Schema validation, keyword
@@ -88,7 +102,7 @@ docs/               Design, ops guides, runbooks, analytics, ADRs
 | 0 | Scope & repo | done |
 | 1 | Platform | done |
 | 2 | Process v1 happy path | done |
-| 3 | DMN + FEEL | planned |
+| 3 | DMN + FEEL | done |
 | 4 | Integrations | planned |
 | 5 | LLM classifier with guardrails | planned |
 | 6 | Operations | planned |

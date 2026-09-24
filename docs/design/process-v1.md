@@ -165,7 +165,7 @@ Idempotency comes from the publisher side: the engine does not create a new inst
 
 ## 7. Phase 2 stub worker
 
-One Python process (Python SDK per ADR-003) subscribes to all six job types. This is a deliberate, temporary deviation from ADR-003's Go-for-integration split: it keeps Phase 2 to a single moving part. Phase 4 moves `booking.change`, `booking.cancel` and `ticket.answer` to Go workers; `ticket.classify` and `ticket.notify` stay in Python for Phase 5.
+One Python process (Python SDK per ADR-003) subscribed to all six job types in Phase 2; since Phase 3 routing lives in DMN (see `routing-v1.md`) and the stub serves five. This is a deliberate, temporary deviation from ADR-003's Go-for-integration split: it keeps Phase 2 to a single moving part. Phase 4 moves `booking.change`, `booking.cancel` and `ticket.answer` to Go workers; `ticket.classify` and `ticket.notify` stay in Python for Phase 5.
 
 Location: `workers/stub/`. Configuration via env: `CAMUNDA_BASE_URL`, `CAMUNDA_USER`, `CAMUNDA_PASSWORD`. No secrets in the repo.
 
@@ -174,7 +174,7 @@ Deterministic behaviour, keyed on `subject` (case-insensitive):
 | Job type | Rule |
 |---|---|
 | `ticket.classify` | contains `change` → `change_booking`, 0.92; contains `cancel` or `refund` → `cancel_refund`, 0.90; contains `?` or starts with `how`/`what`/`when` → `question`, 0.85; contains `unclear` → `question`, 0.40; otherwise `other`, 0.80. `sentiment` = `negative` if body contains `angry`/`terrible`, else `neutral`. `needsReview = confidence < 0.7`. |
-| `ticket.route` | per §5.3 |
+| `ticket.route` | per §5.3 — moved to DMN in Phase 3 (`routing-v1.md`); the stub no longer serves this job type |
 | `booking.change` | logs, returns `{}` |
 | `booking.cancel` | logs, returns `{}` |
 | `ticket.answer` | logs, returns `{}` |

@@ -1,9 +1,10 @@
-# Stub worker (Phase 2)
+# Stub worker (Phase 2+)
 
-One Python process that subscribes to all six job types of `support-request-v1` and completes
-them with the deterministic values from `docs/design/process-v1.md` §7. Temporary by design:
-Phase 4 moves the `booking.*` and `ticket.answer` types to Go workers, `ticket.classify` and
-`ticket.notify` stay in Python for the Phase 5 LLM classifier.
+One Python process that subscribes to five job types of `support-request-v1` and completes
+them with the deterministic values from `docs/design/process-v1.md` §7. The routing job type
+moved to DMN in Phase 3 (`docs/design/routing-v1.md`) — the worker no longer serves it.
+Temporary by design: Phase 4 moves the `booking.*` and `ticket.answer` types to Go workers,
+`ticket.classify` and `ticket.notify` stay in Python for the Phase 5 LLM classifier.
 
 ## Version pin
 
@@ -24,11 +25,15 @@ python3 -m venv .venv
 
 ```bash
 cp .env.example .env    # then set CAMUNDA_PASSWORD (admin password from infra/.env on the stand)
-set -a; source .env; set +a
+set -a; source .env; set +a    # required: the worker does not read .env itself
 .venv/bin/python worker.py
 ```
 
-The worker long-polls the six job types and logs one line per completed job:
+Run the worker as the stand's deploy user, never as root — root-owned files under
+`workers/stub/` break `make sync` later (see the rsync error 23 entry in
+`docs/ops/install.md`).
+
+The worker long-polls the five job types and logs one line per completed job:
 `job=<type> ticketId=<id> -> <returned variables>`. Stop with Ctrl-C.
 
 Uses the `admin` user for now; a dedicated worker user is parked in `docs/backlog.md`
@@ -42,7 +47,6 @@ time); keyword tables and thresholds live in `rules.py`.
 | Job type | Returns |
 |---|---|
 | `ticket.classify` | `intent`, `confidence` from the ordered subject keyword rules; `sentiment` (`negative` if body contains angry/terrible, else `neutral`); `needsReview` = confidence < 0.7 |
-| `ticket.route` | `team` by intent (bookings/refunds/support/escalation), `priority` (`high` for premium tier else `normal`), `slaHours` (4/24) |
 | `booking.change` | `{}` (logs only) |
 | `booking.cancel` | `{}` (logs only) |
 | `ticket.answer` | `{}` (logs only) |

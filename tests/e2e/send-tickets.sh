@@ -140,9 +140,18 @@ variable_value() { # INSTANCE_KEY NAME — unwraps JSON-encoded string values
     | jq -r '.items[0].value // empty | (try fromjson catch .) | tostring'
 }
 
+# routing_vars INSTANCE_KEY — one object {name: value} for the DMN routing outputs;
+# variable values arrive JSON-encoded, hence fromjson
+routing_vars() {
+  api POST /variables/search "$(jq -cn --arg k "$1" \
+    '{filter: {processInstanceKey: $k, name: {"$in": ["team","priority","slaHours","requiredChecks","slaDeadline"]}}}')" \
+    | jq -c '[.items[] | {(.name): (.value | try fromjson catch .)}] | add // {}'
+}
+
 verify() {
   echo "run $RUN_ID: verifying"
   local id t key state actual expected fails=0 resolution template exp_res
+  local routing actual_routing expected_routing sla_deadline
   for id in $(ticket_ids); do
     t=$(ticket "$id")
     if ! key=$(wait_for_instance "$id"); then fails=$((fails+1)); echo "FAIL $id: instance not found"; continue; fi
@@ -158,13 +167,22 @@ verify() {
     resolution=$(variable_value "$key" resolution)
     template=$(variable_value "$key" notificationTemplate)
     exp_res=$(echo "$t" | jq -r '.expected.resolution')
+    routing=$(routing_vars "$key")
+    # requiredChecks compared as a set (sorted); jq -S normalises key order
+    actual_routing=$(echo "$routing" | jq -cS '{team, priority, slaHours, requiredChecks: ((.requiredChecks // []) | sort)}')
+    expected_routing=$(echo "$t" | jq -cS '.expected.routing | {team, priority, slaHours, requiredChecks: (.requiredChecks | sort)}')
+    sla_deadline=$(echo "$routing" | jq -r '.slaDeadline // empty')
     if [ "$actual" != "$expected" ]; then
       echo "FAIL $id: path $actual, expected $expected"; fails=$((fails+1))
     elif [ "$resolution" != "$exp_res" ] || [ "$template" != "notify-$exp_res" ]; then
       echo "FAIL $id: resolution=$resolution notificationTemplate=$template, expected $exp_res / notify-$exp_res"
       fails=$((fails+1))
+    elif [ "$actual_routing" != "$expected_routing" ]; then
+      echo "FAIL $id: routing $actual_routing, expected $expected_routing"; fails=$((fails+1))
+    elif [ -z "$sla_deadline" ]; then
+      echo "FAIL $id: slaDeadline is missing or empty"; fails=$((fails+1))
     else
-      echo "PASS $id: path ok, resolution=$resolution, notificationTemplate=$template"
+      echo "PASS $id: path ok, resolution=$resolution, routing ok, slaDeadline=$sla_deadline"
     fi
   done
   [ "$fails" -eq 0 ] || { echo "$fails ticket(s) failed"; exit 1; }

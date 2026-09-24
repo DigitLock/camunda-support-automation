@@ -1,7 +1,8 @@
-"""Keyword tables and thresholds for the Phase 2 stub worker.
+"""Keyword tables and thresholds for the stub worker.
 
-Plain data only — the values come from docs/design/process-v1.md §7 (classification rules)
-and §5.3 (routing). handlers.py interprets these tables; nothing here executes.
+Plain data only — the values come from docs/design/process-v1.md §7 (classification rules).
+handlers.py interprets these tables; nothing here executes. Routing rules lived here until
+Phase 3 moved them to DMN (docs/design/routing-v1.md).
 """
 
 # ticket.classify — evaluated in order, first match wins (design §7).
@@ -20,16 +21,6 @@ NEGATIVE_BODY_KEYWORDS = ["angry", "terrible"]
 
 # needsReview = confidence < REVIEW_THRESHOLD (design §5.2, decision D2-4)
 REVIEW_THRESHOLD = 0.7
-
-# ticket.route (design §5.3)
-TEAM_BY_INTENT = {
-    "change_booking": "bookings",
-    "cancel_refund": "refunds",
-    "question": "support",
-    "other": "escalation",
-}
-PREMIUM_TIER = "premium"          # customerTier value that yields high priority
-SLA_HOURS = {"high": 4, "normal": 24}
 
 # ticket.notify (design §5.6)
 NOTIFICATION_TEMPLATE_PREFIX = "notify-"

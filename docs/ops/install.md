@@ -168,6 +168,13 @@ Symptom → cause → fix entries are added here the moment something breaks dur
 - **Symptom:** `make sync` fails with `mkdir "/opt/camunda-support-automation" failed: Permission denied`.
   **Cause:** `/opt` is root-owned and the sync user is unprivileged.
   **Fix:** as root: `mkdir -p /opt/camunda-support-automation && chown <user>: /opt/camunda-support-automation`.
+- **Symptom:** `make sync` fails with rsync error 23 and hundreds of "Permission denied" on
+  `workers/stub/.venv` and `__pycache__`.
+  **Cause:** rsync `--delete` tries to remove the VM-side virtualenv, which doesn't exist on
+  the workstation; the files were root-owned because the worker had been started as root.
+  Without that accident the venv would have been silently deleted.
+  **Fix:** Makefile excludes `.venv`, `__pycache__` and `*.pyc`; stand files owned by the
+  deploy user (`chown`), worker runs as that user, never as root.
 - **Symptom:** `docker compose ...` prints `no configuration file provided: not found`.
   **Cause:** Compose looks for the compose file in the current directory.
   **Fix:** run from `/opt/camunda-support-automation/infra`, or export `COMPOSE_FILE` (see Sync setup).
@@ -190,6 +197,12 @@ Symptom → cause → fix entries are added here the moment something breaks dur
   embedded quotes (`"\"T-1001\""`), a bare `"T-1001"` never matches.
   **Fix:** JSON-encode the filter value (in jq: `value: ($id | tojson)`), as in
   `tests/e2e/send-tickets.sh`.
+- **Symptom:** output mapping never resolves; the BPMN XML contains
+  `zeebe:output source="==routing.team"`.
+  **Cause:** the Modeler mapping field is already in FEEL mode (the `=` badge), and the
+  expression was typed with a leading `=` as well — the doubled prefix ends up in the XML.
+  **Fix:** type mapping expressions without `=`; check with `grep -n 'source="=='
+  processes/*.bpmn` (must be empty).
 - **Symptom:** the API still answers 200 without credentials after enabling protection.
   **Cause:** the config was edited on the workstation but not synced to the VM; Compose
   restarted the old files.

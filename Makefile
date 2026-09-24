@@ -5,7 +5,7 @@ sync:
 ifndef STAND_HOST
 	$(error STAND_HOST is not set; export STAND_HOST=user@host first)
 endif
-	rsync -az --delete --exclude '.git' --exclude '.env' --exclude '.DS_Store' ./ $(STAND_HOST):/opt/camunda-support-automation/
+	rsync -az --delete --exclude '.git' --exclude '.env' --exclude '.DS_Store' --exclude '.venv' --exclude '__pycache__' --exclude '*.pyc' ./ $(STAND_HOST):/opt/camunda-support-automation/
 
 deploy: sync
 	ssh $(STAND_HOST) 'cd /opt/camunda-support-automation/infra && docker compose up -d --wait'

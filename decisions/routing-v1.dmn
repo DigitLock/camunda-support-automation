@@ -1,0 +1,266 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/" xmlns:dc="http://www.omg.org/spec/DMN/20180521/DC/" xmlns:modeler="http://camunda.org/schema/modeler/1.0" xmlns:di="http://www.omg.org/spec/DMN/20180521/DI/" id="routing-v1" name="Routing v1" namespace="http://camunda.org/schema/1.0/dmn" exporter="Camunda Modeler" exporterVersion="5.51.1" modeler:executionPlatform="Camunda Cloud" modeler:executionPlatformVersion="8.9.0">
+  <decision id="route-team" name="route-team">
+    <variable id="Variable_1" name="route-team" typeRef="Any" />
+    <decisionTable id="DecisionTable_09hs6lh" hitPolicy="FIRST">
+      <input id="InputClause_1e719yo" label="intent">
+        <inputExpression id="LiteralExpression_02pzv93" typeRef="string">
+          <text>intent</text>
+        </inputExpression>
+      </input>
+      <output id="OutputClause_08sme4f" label="team" name="team" typeRef="string" />
+      <rule id="DecisionRule_1iso9q3">
+        <inputEntry id="UnaryTests_0fcxvm7">
+          <text>"change_booking"</text>
+        </inputEntry>
+        <outputEntry id="LiteralExpression_16k04od">
+          <text>"bookings"</text>
+        </outputEntry>
+      </rule>
+      <rule id="DecisionRule_1qkb8bp">
+        <inputEntry id="UnaryTests_1jklb94">
+          <text>"cancel_refund"</text>
+        </inputEntry>
+        <outputEntry id="LiteralExpression_0o9q8ap">
+          <text>"refunds"</text>
+        </outputEntry>
+      </rule>
+      <rule id="DecisionRule_1otvrou">
+        <inputEntry id="UnaryTests_13bp9ky">
+          <text>"question"</text>
+        </inputEntry>
+        <outputEntry id="LiteralExpression_19x7t5w">
+          <text>"support"</text>
+        </outputEntry>
+      </rule>
+      <rule id="DecisionRule_02vh8u3">
+        <inputEntry id="UnaryTests_0la7585">
+          <text></text>
+        </inputEntry>
+        <outputEntry id="LiteralExpression_1a3flxo">
+          <text>"escalation"</text>
+        </outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+  <decision id="sla-policy" name="sla-policy">
+    <decisionTable id="DecisionTable_0s2b8lb" hitPolicy="FIRST">
+      <input id="InputClause_1w03yyy" label="customerTier">
+        <inputExpression id="LiteralExpression_1w5j4lr" typeRef="string">
+          <text>customerTier</text>
+        </inputExpression>
+      </input>
+      <input id="InputClause_1xa3ynk" label="sentiment">
+        <inputExpression id="LiteralExpression_1691vlj" typeRef="string">
+          <text>sentiment</text>
+        </inputExpression>
+      </input>
+      <input id="InputClause_11nfx8q" label="bookingValue">
+        <inputExpression id="LiteralExpression_1cfbv4m" typeRef="number">
+          <text>bookingValue</text>
+        </inputExpression>
+      </input>
+      <output id="OutputClause_1f9ktna" label="priority" name="priority" typeRef="string" />
+      <output id="OutputClause_1wz7r8f" label="slaHours" name="slaHours" typeRef="number" />
+      <rule id="DecisionRule_0n7bvis">
+        <description>VIP</description>
+        <inputEntry id="UnaryTests_1goe4dp">
+          <text>"premium"</text>
+        </inputEntry>
+        <inputEntry id="UnaryTests_0scr31k">
+          <text></text>
+        </inputEntry>
+        <inputEntry id="UnaryTests_0vu2130">
+          <text></text>
+        </inputEntry>
+        <outputEntry id="LiteralExpression_1p568ln">
+          <text>"high"</text>
+        </outputEntry>
+        <outputEntry id="LiteralExpression_145phgr">
+          <text>4</text>
+        </outputEntry>
+      </rule>
+      <rule id="DecisionRule_0ec0vll">
+        <description>Upset customer</description>
+        <inputEntry id="UnaryTests_0uxo2nz">
+          <text></text>
+        </inputEntry>
+        <inputEntry id="UnaryTests_0g5dsaw">
+          <text>"negative"</text>
+        </inputEntry>
+        <inputEntry id="UnaryTests_0d3hn5q">
+          <text></text>
+        </inputEntry>
+        <outputEntry id="LiteralExpression_0ce4jz9">
+          <text>"high"</text>
+        </outputEntry>
+        <outputEntry id="LiteralExpression_1c51gii">
+          <text>4</text>
+        </outputEntry>
+      </rule>
+      <rule id="DecisionRule_1gktb91">
+        <description>High-value booking</description>
+        <inputEntry id="UnaryTests_1d029tf">
+          <text></text>
+        </inputEntry>
+        <inputEntry id="UnaryTests_0alp6sl">
+          <text></text>
+        </inputEntry>
+        <inputEntry id="UnaryTests_01io1gr">
+          <text>&gt; 1000</text>
+        </inputEntry>
+        <outputEntry id="LiteralExpression_0mj1fdm">
+          <text>"high"</text>
+        </outputEntry>
+        <outputEntry id="LiteralExpression_0e3jz1w">
+          <text>4</text>
+        </outputEntry>
+      </rule>
+      <rule id="DecisionRule_0obw9qh">
+        <description>Default</description>
+        <inputEntry id="UnaryTests_16jcafb">
+          <text></text>
+        </inputEntry>
+        <inputEntry id="UnaryTests_1dcv4n4">
+          <text></text>
+        </inputEntry>
+        <inputEntry id="UnaryTests_0wi4cwz">
+          <text></text>
+        </inputEntry>
+        <outputEntry id="LiteralExpression_105ruko">
+          <text>"normal"</text>
+        </outputEntry>
+        <outputEntry id="LiteralExpression_11kred7">
+          <text>24</text>
+        </outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+  <decision id="required-checks" name="required-checks">
+    <decisionTable id="DecisionTable_13ufr35" hitPolicy="COLLECT">
+      <input id="InputClause_0flhi93" label="intent">
+        <inputExpression id="LiteralExpression_01x32gr" typeRef="string">
+          <text>intent</text>
+        </inputExpression>
+      </input>
+      <input id="InputClause_1kudzjp" label="customerTier">
+        <inputExpression id="LiteralExpression_0jnlj6e" typeRef="string">
+          <text>customerTier</text>
+        </inputExpression>
+      </input>
+      <input id="InputClause_1mrs0nn" label="bookingValue">
+        <inputExpression id="LiteralExpression_1yplwk4" typeRef="number">
+          <text>bookingValue</text>
+        </inputExpression>
+      </input>
+      <output id="OutputClause_05j0blg" label="check" name="check" typeRef="string" />
+      <rule id="DecisionRule_06j6bt6">
+        <inputEntry id="UnaryTests_0pg1usg">
+          <text>"change_booking"</text>
+        </inputEntry>
+        <inputEntry id="UnaryTests_0rbztgk">
+          <text></text>
+        </inputEntry>
+        <inputEntry id="UnaryTests_1c3tijt">
+          <text></text>
+        </inputEntry>
+        <outputEntry id="LiteralExpression_1k9lysw">
+          <text>"availability"</text>
+        </outputEntry>
+      </rule>
+      <rule id="DecisionRule_0oiu8n0">
+        <inputEntry id="UnaryTests_1r1nir0">
+          <text>"cancel_refund"</text>
+        </inputEntry>
+        <inputEntry id="UnaryTests_13a5hrg">
+          <text></text>
+        </inputEntry>
+        <inputEntry id="UnaryTests_1hq7bbv">
+          <text></text>
+        </inputEntry>
+        <outputEntry id="LiteralExpression_0fgkpxl">
+          <text>"refund-policy"</text>
+        </outputEntry>
+      </rule>
+      <rule id="DecisionRule_1h06lln">
+        <inputEntry id="UnaryTests_0wxxvcj">
+          <text>"cancel_refund"</text>
+        </inputEntry>
+        <inputEntry id="UnaryTests_1tp9bc8">
+          <text></text>
+        </inputEntry>
+        <inputEntry id="UnaryTests_1ugjuiv">
+          <text>&gt; 1000</text>
+        </inputEntry>
+        <outputEntry id="LiteralExpression_0h8ph0b">
+          <text>"manual-approval"</text>
+        </outputEntry>
+      </rule>
+      <rule id="DecisionRule_01keihw">
+        <inputEntry id="UnaryTests_0iflknl">
+          <text></text>
+        </inputEntry>
+        <inputEntry id="UnaryTests_0lysr5k">
+          <text>"premium"</text>
+        </inputEntry>
+        <inputEntry id="UnaryTests_0e5tx24">
+          <text></text>
+        </inputEntry>
+        <outputEntry id="LiteralExpression_1mpc4rv">
+          <text>"vip-handling"</text>
+        </outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+  <decision id="route-ticket" name="route-ticket">
+    <variable id="InformationItem_08jy0dm" name="route-ticket" />
+    <informationRequirement id="InformationRequirement_1kwrrpj">
+      <requiredDecision href="#route-team" />
+    </informationRequirement>
+    <informationRequirement id="InformationRequirement_0dpts56">
+      <requiredDecision href="#sla-policy" />
+    </informationRequirement>
+    <informationRequirement id="InformationRequirement_0bm7bnp">
+      <requiredDecision href="#required-checks" />
+    </informationRequirement>
+    <literalExpression id="LiteralExpression_14fcqja">
+      <text>{
+  team: `route-team`,
+  priority: `sla-policy`.priority,
+  slaHours: `sla-policy`.slaHours,
+  requiredChecks: if `required-checks` = null then [] else `required-checks`
+}</text>
+    </literalExpression>
+  </decision>
+  <dmndi:DMNDI>
+    <dmndi:DMNDiagram>
+      <dmndi:DMNShape id="DMNShape_0ys1hjo" dmnElementRef="route-team">
+        <dc:Bounds height="80" width="180" x="160" y="190" />
+      </dmndi:DMNShape>
+      <dmndi:DMNShape id="DMNShape_0zfustp" dmnElementRef="sla-policy">
+        <dc:Bounds height="80" width="180" x="370" y="190" />
+      </dmndi:DMNShape>
+      <dmndi:DMNShape id="DMNShape_0qv38v7" dmnElementRef="required-checks">
+        <dc:Bounds height="80" width="180" x="580" y="190" />
+      </dmndi:DMNShape>
+      <dmndi:DMNShape id="DMNShape_03c7rup" dmnElementRef="route-ticket">
+        <dc:Bounds height="80" width="180" x="370" y="80" />
+      </dmndi:DMNShape>
+      <dmndi:DMNEdge id="DMNEdge_1a9mx44" dmnElementRef="InformationRequirement_1kwrrpj">
+        <di:waypoint x="250" y="190" />
+        <di:waypoint x="415" y="180" />
+        <di:waypoint x="415" y="160" />
+      </dmndi:DMNEdge>
+      <dmndi:DMNEdge id="DMNEdge_1f99oup" dmnElementRef="InformationRequirement_0dpts56">
+        <di:waypoint x="460" y="190" />
+        <di:waypoint x="460" y="180" />
+        <di:waypoint x="460" y="160" />
+      </dmndi:DMNEdge>
+      <dmndi:DMNEdge id="DMNEdge_0netdn3" dmnElementRef="InformationRequirement_0bm7bnp">
+        <di:waypoint x="670" y="190" />
+        <di:waypoint x="505" y="180" />
+        <di:waypoint x="505" y="160" />
+      </dmndi:DMNEdge>
+    </dmndi:DMNDiagram>
+  </dmndi:DMNDI>
+</definitions>

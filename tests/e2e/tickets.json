@@ -21,7 +21,15 @@
         "start-ticket-created"
       ],
       "resolution": "booking_changed",
-      "userTask": null
+      "userTask": null,
+      "routing": {
+        "team": "bookings",
+        "priority": "normal",
+        "slaHours": 24,
+        "requiredChecks": [
+          "availability"
+        ]
+      }
     }
   },
   {
@@ -46,7 +54,15 @@
         "start-ticket-created"
       ],
       "resolution": "refund_issued",
-      "userTask": null
+      "userTask": null,
+      "routing": {
+        "team": "refunds",
+        "priority": "normal",
+        "slaHours": 24,
+        "requiredChecks": [
+          "refund-policy"
+        ]
+      }
     }
   },
   {
@@ -71,7 +87,13 @@
         "start-ticket-created"
       ],
       "resolution": "answered",
-      "userTask": null
+      "userTask": null,
+      "routing": {
+        "team": "support",
+        "priority": "normal",
+        "slaHours": 24,
+        "requiredChecks": []
+      }
     }
   },
   {
@@ -105,6 +127,12 @@
           "needsReview": false,
           "escalate": false
         }
+      },
+      "routing": {
+        "team": "support",
+        "priority": "normal",
+        "slaHours": 24,
+        "requiredChecks": []
       }
     }
   },
@@ -135,6 +163,45 @@
         "variables": {
           "agentNote": "Called customer"
         }
+      },
+      "routing": {
+        "team": "escalation",
+        "priority": "high",
+        "slaHours": 4,
+        "requiredChecks": [
+          "vip-handling"
+        ]
+      }
+    }
+  },
+  {
+    "ticketId": "T-1006",
+    "customerId": "C-1006",
+    "customerTier": "standard",
+    "subject": "How do I get an invoice?",
+    "body": "The self-service portal is terrible, nothing works.",
+    "language": "en",
+    "bookingRef": null,
+    "bookingValue": null,
+    "currency": null,
+    "expected": {
+      "path": [
+        "answer-question",
+        "classify-ticket",
+        "end-resolved",
+        "gw-intent",
+        "gw-needs-review",
+        "notify-customer",
+        "route-ticket",
+        "start-ticket-created"
+      ],
+      "resolution": "answered",
+      "userTask": null,
+      "routing": {
+        "team": "support",
+        "priority": "high",
+        "slaHours": 4,
+        "requiredChecks": []
       }
     }
   }

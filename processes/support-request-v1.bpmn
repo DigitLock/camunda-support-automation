@@ -15,13 +15,6 @@
       <bpmn:outgoing>Flow_1ctm57t</bpmn:outgoing>
     </bpmn:serviceTask>
     <bpmn:sequenceFlow id="Flow_1ctm57t" sourceRef="classify-ticket" targetRef="route-ticket" />
-    <bpmn:serviceTask id="route-ticket" name="Route ticket">
-      <bpmn:extensionElements>
-        <zeebe:taskDefinition type="ticket.route" />
-      </bpmn:extensionElements>
-      <bpmn:incoming>Flow_1ctm57t</bpmn:incoming>
-      <bpmn:outgoing>Flow_02rcfxv</bpmn:outgoing>
-    </bpmn:serviceTask>
     <bpmn:exclusiveGateway id="gw-intent" name="Intent?" default="handle_by_agent">
       <bpmn:incoming>Flow_0w83u7f</bpmn:incoming>
       <bpmn:incoming>Flow_02q5fd0</bpmn:incoming>
@@ -131,6 +124,20 @@
     </bpmn:exclusiveGateway>
     <bpmn:sequenceFlow id="Flow_02rcfxv" sourceRef="route-ticket" targetRef="gw-needs-review" />
     <bpmn:sequenceFlow id="Flow_02q5fd0" sourceRef="gw-needs-review" targetRef="gw-intent" />
+    <bpmn:businessRuleTask id="route-ticket" name="Route ticket">
+      <bpmn:extensionElements>
+        <zeebe:calledDecision decisionId="route-ticket" resultVariable="routing" />
+        <zeebe:ioMapping>
+          <zeebe:output source="=routing.team" target="team" />
+          <zeebe:output source="=routing.priority" target="priority" />
+          <zeebe:output source="=routing.slaHours" target="slaHours" />
+          <zeebe:output source="=routing.requiredChecks" target="requiredChecks" />
+          <zeebe:output source="=now() + duration(&#34;PT&#34; + string(routing.slaHours) + &#34;H&#34;)" target="slaDeadline" />
+        </zeebe:ioMapping>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_1ctm57t</bpmn:incoming>
+      <bpmn:outgoing>Flow_02rcfxv</bpmn:outgoing>
+    </bpmn:businessRuleTask>
   </bpmn:process>
   <bpmn:message id="Message_2kod71m" />
   <bpmn:message id="Message_07jvcdv" name="ticket.created" />
@@ -185,10 +192,6 @@
         <dc:Bounds x="220" y="300" width="100" height="80" />
         <bpmndi:BPMNLabel />
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Activity_07crixa_di" bpmnElement="route-ticket">
-        <dc:Bounds x="350" y="300" width="100" height="80" />
-        <bpmndi:BPMNLabel />
-      </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Gateway_086cww5_di" bpmnElement="gw-review-exit" isMarkerVisible="true">
         <dc:Bounds x="835" y="445" width="50" height="50" />
         <bpmndi:BPMNLabel>
@@ -198,6 +201,9 @@
       <bpmndi:BPMNShape id="Activity_1nqcvws_di" bpmnElement="review-classification">
         <dc:Bounds x="700" y="430" width="100" height="80" />
         <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_1vh8efh_di" bpmnElement="route-ticket">
+        <dc:Bounds x="350" y="300" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNEdge id="Flow_0w83u7f_di" bpmnElement="Flow_0w83u7f">
         <di:waypoint x="860" y="445" />
