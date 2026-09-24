@@ -4,8 +4,9 @@
 deployed process over the REST API v2 (bash + curl + jq). Ticket payloads and expectations live
 in `tickets.json`; the script contains no data.
 
-Prerequisites: core stack up, `support-request-v1` deployed, stub worker running
-(`workers/stub/`). Environment contract is the same as the stub worker:
+Prerequisites: core stack up, `support-request-v1` deployed, worker containers running
+(compose profile `workers`, see `docs/ops/install.md`). Environment contract is the same
+as the workers:
 
 ```bash
 export CAMUNDA_BASE_URL=http://localhost:8080   # or the stand's address

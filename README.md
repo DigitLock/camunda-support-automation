@@ -1,6 +1,8 @@
 # Camunda Support Automation
 
-Status: Phase 3 done — routing moved from the stub worker into DMN, see below.
+Status: Phase 4 in progress — integrations infrastructure (Kafka, mock Booking API, FX
+gateway; step 4.1) and job workers as containers (Go booking worker + containerised stub;
+step 4.2, ADR-006).
 
 Phase 2 — process `support-request-v1` at version 3 (v1 happy path; v2 misrouted
 at a single gateway; v3 with a separate needs-review gateway, see
@@ -103,7 +105,7 @@ docs/               Design, ops guides, runbooks, analytics, ADRs
 | 1 | Platform | done |
 | 2 | Process v1 happy path | done |
 | 3 | DMN + FEEL | done |
-| 4 | Integrations | planned |
+| 4 | Integrations | in progress |
 | 5 | LLM classifier with guardrails | planned |
 | 6 | Operations | planned |
 | 7 | Docs & analytics | planned |

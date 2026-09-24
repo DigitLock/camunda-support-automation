@@ -1,4 +1,8 @@
-"""Phase 2 stub worker: subscribes to all six job types with the official Python SDK.
+"""Stub worker: subscribes to the remaining Python job types with the official SDK.
+
+Job types: ticket.classify, ticket.answer, ticket.notify (routing → DMN in Phase 3,
+booking.* → the Go worker in Phase 4). Runs as a container in the `workers` compose
+profile (ADR-006); a local venv run stays available as the dev fallback (README).
 
 Configuration via environment (design §7): CAMUNDA_BASE_URL, CAMUNDA_USER, CAMUNDA_PASSWORD.
 The names are mapped onto the SDK's own configuration keys below, so the contract stays the
@@ -6,9 +10,12 @@ design's while the SDK keeps its documented settings.
 """
 
 import asyncio
+import http.server
 import logging
 import os
+import signal
 import sys
+import threading
 
 from camunda_orchestration_sdk import CamundaAsyncClient, WorkerConfig
 
@@ -34,6 +41,22 @@ def make_callback(job_type: str, handler):
     return callback
 
 
+class _HealthHandler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):  # noqa: N802 (stdlib API)
+        status = 200 if self.path == "/healthz" else 404
+        self.send_response(status)
+        self.end_headers()
+        self.wfile.write(b"ok\n" if status == 200 else b"")
+
+    def log_message(self, *args):  # silence per-request lines
+        pass
+
+
+def start_health_server() -> None:
+    server = http.server.ThreadingHTTPServer(("0.0.0.0", 8081), _HealthHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+
+
 async def main() -> None:
     client = CamundaAsyncClient(
         configuration={
@@ -48,13 +71,24 @@ async def main() -> None:
             config=WorkerConfig(job_type=job_type, job_timeout_milliseconds=30_000),
             callback=make_callback(job_type, handler),
         )
+    start_health_server()
     log.info("polling job types: %s", ", ".join(HANDLERS))
-    await client.run_workers()
+
+    # SIGTERM (compose stop) cancels run_workers(), which stops all pollers cleanly.
+    loop = asyncio.get_running_loop()
+    workers_task = asyncio.ensure_future(client.run_workers())
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, workers_task.cancel)
+    try:
+        await workers_task
+    except asyncio.CancelledError:
+        log.info("shutdown: workers stopped")
 
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        pass
+    # The SDK logs each empty poll at DEBUG; keep its logger at INFO so job lines stay visible.
+    logging.getLogger("camunda_orchestration_sdk").setLevel(
+        getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO)
+    )
+    asyncio.run(main())

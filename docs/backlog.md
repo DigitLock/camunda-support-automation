@@ -25,10 +25,6 @@ Ideas parked here to keep the current phase focused. Each entry names the phase 
      run makes the next one fail confusingly.
    - **Measure install-from-scratch time** on the next clean-OS-plus-Docker run; recorded as
      ≤ 10 min without errors (design D2-6), not yet timed.
-   - **Phase 4 — Raise the SDK log level in the stub worker to INFO.** The SDK's DEBUG
-     polling output every ~10 s floods the log and drowns the `job=...` lines.
-   - **Phase 4 — Graceful client shutdown in workers.** The stub worker does not close the
-     SDK client on Ctrl-C; the Go workers should get clean shutdown from the start.
    - **After Phase 8 — Camunda Non-Commercial License application.** The stand currently runs
      without a key ("Non-Production License" banner). Apply for the non-commercial license and
      add the key through the environment once the project is published.

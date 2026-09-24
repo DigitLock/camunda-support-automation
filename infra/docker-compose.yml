@@ -195,7 +195,60 @@ services:
     networks:
       - camunda
 
-  # ---- workers profile: job workers only — filled in Phase 4.2 (ADR-006) ----
+  # ---- workers profile: job workers only (ADR-006). Depends on services from the
+  # integrations profile, so always start with BOTH profiles, as make deploy does ----
+
+  worker-booking:
+    build: ../workers/booking
+    image: worker-booking:local
+    container_name: worker-booking
+    profiles: ["workers"]
+    environment:
+      CAMUNDA_BASE_URL: http://orchestration:8080
+      CAMUNDA_USER: admin
+      CAMUNDA_PASSWORD: ${CAMUNDA_ADMIN_PASSWORD:?set CAMUNDA_ADMIN_PASSWORD in infra/.env}
+      BOOKING_API_URL: http://booking-api:8080
+    mem_limit: 64m
+    restart: unless-stopped
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "/app", "-check"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      orchestration:
+        condition: service_healthy
+      booking-api:
+        condition: service_healthy
+    networks:
+      - camunda
+
+  worker-stub:
+    build: ../workers/stub
+    image: worker-stub:local
+    container_name: worker-stub
+    profiles: ["workers"]
+    env_file:
+      - ../workers/stub/.env
+    environment:
+      # overrides the venv-oriented localhost value from the env_file
+      CAMUNDA_BASE_URL: http://orchestration:8080
+    mem_limit: 256m
+    restart: unless-stopped
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8081/healthz', timeout=3).status == 200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      orchestration:
+        condition: service_healthy
+    networks:
+      - camunda
 
 volumes:
   camunda:

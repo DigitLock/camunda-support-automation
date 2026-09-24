@@ -147,6 +147,23 @@ In a browser, log in as `admin` with `CAMUNDA_ADMIN_PASSWORD` from `infra/.env`:
 The "Non-production license" and "Non-commercial license" badges in the header are expected
 (see the README license note).
 
+## Workers
+
+Since Phase 4.2 the job workers run as containers in the `workers` compose profile
+(`worker-booking`, `worker-stub`), built on the VM by `make deploy`. The `workers` profile
+**cannot start on its own**: its services `depends_on` `booking-api` from the
+`integrations` profile. Both profiles are activated permanently via
+`COMPOSE_PROFILES=integrations,workers` in `infra/.env` (see `.env.example`), so a plain
+`docker compose up -d --build` — and every other compose command — sees all services:
+
+```bash
+docker compose up -d --build
+```
+
+The venv run of the stub worker (`workers/stub/README.md`) remains available as a dev
+fallback — never run it and the `worker-stub` container at the same time, they compete for
+the same job types.
+
 ## Limitations (accepted for this stand)
 
 - **Kafka runs without authentication or TLS** (PLAINTEXT on both listeners). Acceptable
@@ -219,6 +236,12 @@ Symptom → cause → fix entries are added here the moment something breaks dur
   expression was typed with a leading `=` as well — the doubled prefix ends up in the XML.
   **Fix:** type mapping expressions without `=`; check with `grep -n 'source="=='
   processes/*.bpmn` (must be empty).
+- **Symptom:** any compose command on the VM (even `docker compose stop worker-booking`)
+  fails with `no such service: booking-api`.
+  **Cause:** the `workers` services `depends_on` `booking-api` from the `integrations`
+  profile; with no profile active, compose cannot resolve the dependency.
+  **Fix:** `COMPOSE_PROFILES=integrations,workers` in `infra/.env` (in `.env.example` since
+  Phase 4.2) — profiles are then active for every compose command without `--profile` flags.
 - **Symptom:** the API still answers 200 without credentials after enabling protection.
   **Cause:** the config was edited on the workstation but not synced to the VM; Compose
   restarted the old files.

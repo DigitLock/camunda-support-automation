@@ -9,5 +9,6 @@ endif
 
 # No --wait: it treats successfully exited one-shot containers (kafka-init) as failures
 # when nothing depends on them (docker/compose#10596); health gating stays on depends_on.
+# Profiles come from COMPOSE_PROFILES in infra/.env on the VM.
 deploy: sync
-	ssh $(STAND_HOST) 'cd /opt/camunda-support-automation/infra && docker compose --profile integrations --profile workers up -d --build'
+	ssh $(STAND_HOST) 'cd /opt/camunda-support-automation/infra && docker compose up -d --build'

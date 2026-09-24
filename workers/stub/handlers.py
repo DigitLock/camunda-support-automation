@@ -2,7 +2,8 @@
 
 No SDK imports — each function is portable to Go (Phase 4) one handler at a time.
 Behaviour follows docs/design/process-v1.md §5.2, §5.6 and §7. Routing moved to DMN
-in Phase 3 (docs/design/routing-v1.md); the worker has no routing handler anymore.
+in Phase 3 (docs/design/routing-v1.md); the booking job types moved to the Go worker
+in Phase 4 (workers/booking/). Three job types remain: classify, answer, notify.
 """
 
 from datetime import datetime, timezone
@@ -36,14 +37,6 @@ def classify_ticket(variables: dict) -> dict:
     }
 
 
-def change_booking(variables: dict) -> dict:
-    return {}
-
-
-def cancel_booking(variables: dict) -> dict:
-    return {}
-
-
 def answer_ticket(variables: dict) -> dict:
     return {}
 
@@ -58,8 +51,6 @@ def notify_customer(variables: dict) -> dict:
 
 HANDLERS = {
     "ticket.classify": classify_ticket,
-    "booking.change": change_booking,
-    "booking.cancel": cancel_booking,
     "ticket.answer": answer_ticket,
     "ticket.notify": notify_customer,
 }
