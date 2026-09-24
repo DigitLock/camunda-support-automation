@@ -246,6 +246,18 @@ Symptom → cause → fix entries are added here the moment something breaks dur
   profile; with no profile active, compose cannot resolve the dependency.
   **Fix:** `COMPOSE_PROFILES=integrations,workers` in `infra/.env` (in `.env.example` since
   Phase 4.2) — profiles are then active for every compose command without `--profile` flags.
+- **Symptom:** connectors logs show `NOT_COORDINATOR` / group-coordinator warnings right
+  after (re)start of the Kafka inbound connector.
+  **Cause:** the consumer group's coordinator is still being elected on the single broker
+  during the first join; the client retries by design.
+  **Fix:** none — expected noise, gone within seconds. Investigate only if it repeats
+  continuously.
+- **Symptom:** variables returned by a job worker are not visible in the process scope; the
+  next REST connector fails with `url: null` and an incident "No retries left".
+  **Cause:** the service task carries an output mapping (the v1 `resolution` literal), and
+  any output mapping makes **all** completion variables task-local.
+  **Fix:** map the worker's variables out explicitly on that task (v6, D4-6 in
+  `docs/design/integrations-v1.md`) — e.g. `=refundCurrency` → `refundCurrency`.
 - **Symptom:** the API still answers 200 without credentials after enabling protection.
   **Cause:** the config was edited on the workstation but not synced to the VM; Compose
   restarted the old files.

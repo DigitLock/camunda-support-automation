@@ -210,12 +210,14 @@ Tickets 1, 2 and 4 carry `bookingRef`/`bookingValue`/`currency`; 3 and 5 send `n
 - [ ] Screenshots in `docs/assets/phase-2/`: Operate diagram with all five paths highlighted (one per instance), variables panel of ticket 4, Tasklist form for tickets 4 and 5.
 - [ ] `docs/ops/install.md` updated with anything that broke (symptom → cause → fix).
 
-## 10. v5 changes (Phase 4.3)
+## 10. v5→v6 changes (Phase 4.3–4.4)
 
-Modeler checklist for process version 5. Element IDs are load-bearing: the e2e path
-verification (`tests/e2e/tickets.json`) expects exactly these. Design context and D4
-decisions: `integrations-v1.md`. Secrets referenced below exist as `SECRET_*` environment
-variables on the connectors container (`infra/docker-compose.yml`).
+Modeler checklist, brought in line with what is actually deployed: **process v6, DMN
+routing-v1 v3**. v5 was deployed with the output mappings of the branch tasks missing
+(D4-6 in `integrations-v1.md`) — v6 is the fix. Element IDs are load-bearing: the e2e path
+verification (`tests/e2e/tickets.json`) expects exactly these. Secrets referenced below
+exist as `SECRET_*` environment variables on the connectors container
+(`infra/docker-compose.yml`).
 
 New flow order: `start-ticket-created` → `classify-ticket` → `gw-has-booking-value` →
 (`convert-booking-value` | skip) → `route-ticket` → `gw-needs-review` → … (unchanged) …
@@ -224,15 +226,17 @@ New flow order: `start-ticket-created` → `classify-ticket` → `gw-has-booking
 
 | Element (id) | Type / template | Properties |
 |---|---|---|
-| `start-ticket-created` (keep the existing id) | Replace the plain message start event with **Kafka Message Start Event Connector** | Bootstrap servers: `{{secrets.KAFKA_BOOTSTRAP}}` · Topic: `support.ticket.created` · Authentication: none (fields empty) · Auto offset reset: `latest` · **Message ID expression**: `=value.messageId` · **Message TTL**: `PT1H` (dedup window, D4-5) · Correlation key: leave empty (message start) · Result expression: `={ticketId: value.ticketId, customerId: value.customerId, customerTier: value.customerTier, subject: value.subject, body: value.body, language: value.language, bookingRef: value.bookingRef, bookingValue: value.bookingValue, currency: value.currency, customerCurrency: value.customerCurrency, runId: value.runId}` |
+| `start-ticket-created` (keep the existing id) | Replace the plain message start event with **Kafka Message Start Event Connector** | Bootstrap servers: `{{secrets.KAFKA_BOOTSTRAP}}` · Topic: `support.ticket.created` · Authentication: `Custom` with empty username/password fields (= PLAINTEXT) · Consumer group ID: `camunda-support-request` · Auto offset reset: `latest` · **Message ID expression**: `=value.messageId` · **Message TTL**: `PT1H` (dedup window, D4-5) · Correlation key: leave empty (message start) · Result expression: `={ticketId: value.ticketId, customerId: value.customerId, customerTier: value.customerTier, subject: value.subject, body: value.body, language: value.language, bookingRef: value.bookingRef, bookingValue: value.bookingValue, currency: value.currency, customerCurrency: value.customerCurrency, runId: value.runId}` |
 | `gw-has-booking-value` | Exclusive gateway between `classify-ticket` and `route-ticket` | Flow to `convert-booking-value`: `=bookingValue != null` · default flow: straight to `route-ticket` |
 | `convert-booking-value` | Service task, **REST Outbound Connector** (HTTP JSON) | Method: `GET` · URL: `="{{secrets.FX_BASE_URL}}/convert?from=" + currency + "&to=EUR&amount=" + string(bookingValue)` · Authentication: none · Result expression: `={bookingValueEur: response.body.converted}` · Outgoing flow → `route-ticket` |
 | `convert-refund` | Service task, **REST Outbound Connector** (HTTP JSON), between `cancel-refund` and `notify-customer` | Method: `GET` · URL: `="{{secrets.FX_BASE_URL}}/convert?from=" + refundCurrency + "&to=" + customerCurrency + "&amount=" + string(refundAmount)` · Authentication: none · Result expression: `={refundAmountCustomer: response.body.converted}` |
 | `publish-resolved` | Service task, **Kafka Outbound Connector** ("Publish Message to Kafka"), between `notify-customer` and `end-resolved` | Bootstrap servers: `{{secrets.KAFKA_BOOTSTRAP}}` · Topic: `support.ticket.resolved` · Authentication: none · Serialization: JSON · Key: `=ticketId` · Value: `={ticketId: ticketId, resolution: resolution, team: team, priority: priority, slaDeadline: slaDeadline, refundAmountCustomer: refundAmountCustomer, runId: runId}` |
-| `sla-policy` (DMN, `decisions/routing-v1.dmn`) | Decision table input | Input expression `bookingValue` → `bookingValueEur` (D3-7; the DMN itself does not convert) |
+| `cancel-refund` | Existing service task — **add output mappings** (v6, D4-6) | `=bookingStatus` → `bookingStatus`, `=refundAmount` → `refundAmount`, `=refundCurrency` → `refundCurrency` (the task's v1 `resolution` mapping makes all completion variables task-local, so the worker's variables must be mapped out explicitly) |
+| `change-booking` | Existing service task — **add output mapping** (v6, D4-6) | `=bookingStatus` → `bookingStatus` |
+| `sla-policy` and `required-checks` (DMN, `decisions/routing-v1.dmn`, v3) | Decision table inputs | Input expression `bookingValue` → `bookingValueEur` in **both** tables (D3-7; the DMN itself does not convert) |
 
-Removed with v5: nothing — the REST publication path disappears operationally (D4-4), the
-model keeps the same single start event, now Kafka-backed.
+Removed with v5/v6: nothing — the REST publication path disappears operationally (D4-4),
+the model keeps the same single start event, now Kafka-backed.
 
 ## 11. Decisions
 

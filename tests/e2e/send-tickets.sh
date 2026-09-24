@@ -20,6 +20,7 @@ TICKETS_FILE=tickets.json
 LAST_RUN_FILE=.last-run
 PROCESS_ID=support-request-v1
 TOPIC=support.ticket.created
+RESOLVED_TOPIC=support.ticket.resolved
 TIMEOUT_SECONDS=60
 POLL_INTERVAL=2
 
@@ -56,34 +57,45 @@ poll() {
 ticket_ids() { jq -r '.[].ticketId' "$TICKETS_FILE"; }
 ticket() { jq -c --arg id "$1" '.[] | select(.ticketId == $id)' "$TICKETS_FILE"; }
 
+# messageId in the payload is the dedup key of the Kafka start event connector (D4-5)
+ticket_payload() {
+  ticket "$1" | jq -c --arg run "$RUN_ID" \
+    'del(.expected) + {runId: $run, messageId: (.ticketId + "-" + $run)}'
+}
+
+produce_event() { # produce_event KEY JSON_PAYLOAD
+  local key=$1 payload=$2 broker="${KAFKA_BROKER:-${STAND_IP:-}:9092}"
+  if command -v kcat >/dev/null 2>&1; then
+    if [ "$broker" = ":9092" ]; then
+      echo "error: set KAFKA_BROKER (or STAND_IP) to reach Kafka with kcat" >&2
+      exit 1
+    fi
+    printf '%s\n' "$payload" | kcat -b "$broker" -t "$TOPIC" -k "$key" -P
+  else
+    # fallback: produce from inside the kafka container over SSH
+    if [ -z "${STAND_HOST:-}" ]; then
+      echo "error: kcat not found and STAND_HOST is not set for the SSH fallback" >&2
+      exit 1
+    fi
+    printf '%s\t%s\n' "$key" "$payload" | ssh "$STAND_HOST" \
+      "cd /opt/camunda-support-automation/infra && docker compose exec -T kafka \
+       /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server localhost:29092 \
+       --topic $TOPIC --property parse.key=true --property 'key.separator=\t' > /dev/null"
+  fi
+}
+
 publish_tickets() {
   RUN_ID=$(date -u +%Y%m%dT%H%M%SZ)
-  local broker="${KAFKA_BROKER:-${STAND_IP:-}:9092}"
   echo "run $RUN_ID: producing to ${TOPIC} for $(ticket_ids | wc -l | tr -d ' ') tickets"
-  local id payload
+  local id
   for id in $(ticket_ids); do
-    # messageId in the payload is the dedup key of the Kafka start event connector (D4-5)
-    payload=$(ticket "$id" | jq -c --arg run "$RUN_ID" \
-      'del(.expected) + {runId: $run, messageId: (.ticketId + "-" + $run)}')
-    if command -v kcat >/dev/null 2>&1; then
-      if [ "$broker" = ":9092" ]; then
-        echo "error: set KAFKA_BROKER (or STAND_IP) to reach Kafka with kcat" >&2
-        exit 1
-      fi
-      printf '%s\n' "$payload" | kcat -b "$broker" -t "$TOPIC" -k "$id" -P
-    else
-      # fallback: produce from inside the kafka container over SSH
-      if [ -z "${STAND_HOST:-}" ]; then
-        echo "error: kcat not found and STAND_HOST is not set for the SSH fallback" >&2
-        exit 1
-      fi
-      printf '%s\t%s\n' "$id" "$payload" | ssh "$STAND_HOST" \
-        "cd /opt/camunda-support-automation/infra && docker compose exec -T kafka \
-         /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server localhost:29092 \
-         --topic $TOPIC --property parse.key=true --property 'key.separator=\t' > /dev/null"
-    fi
+    produce_event "$id" "$(ticket_payload "$id")"
     echo "produced $id (messageId $id-$RUN_ID)"
   done
+  # idempotency probe: the same messageId again — the connector must drop it (D4-5);
+  # verify() then asserts exactly one instance per (runId, ticketId)
+  produce_event "T-1001" "$(ticket_payload "T-1001")"
+  echo "produced duplicate T-1001 (same messageId, expecting dedup)"
   echo "$RUN_ID" > "$LAST_RUN_FILE"
 }
 
@@ -92,6 +104,13 @@ instance_key() {
   api POST /process-instances/search "$(jq -cn --arg pid "$PROCESS_ID" --arg run "$RUN_ID" --arg id "$1" \
     '{filter: {processDefinitionId: $pid, variables: [{name:"runId",value:($run|tojson)},{name:"ticketId",value:($id|tojson)}]}}')" \
     | jq -r '.items[0].processInstanceKey // empty'
+}
+
+# instance_count TICKET_ID — how many instances exist for (runId, ticketId); dedup check
+instance_count() {
+  api POST /process-instances/search "$(jq -cn --arg pid "$PROCESS_ID" --arg run "$RUN_ID" --arg id "$1" \
+    '{filter: {processDefinitionId: $pid, variables: [{name:"runId",value:($run|tojson)},{name:"ticketId",value:($id|tojson)}]}}')" \
+    | jq -r '.items | length'
 }
 
 # open_user_task INSTANCE_KEY -> "userTaskKey elementId" once a CREATED task exists
@@ -170,10 +189,16 @@ verify() {
   echo "run $RUN_ID: verifying"
   local id t key state actual expected fails=0 resolution template exp_res
   local routing actual_routing expected_routing sla_deadline
-  local bve rac has_bv is_refund fx_fail
+  local bve rac has_bv is_refund fx_fail count dedup_line=""
   for id in $(ticket_ids); do
     t=$(ticket "$id")
     if ! key=$(wait_for_instance "$id"); then fails=$((fails+1)); echo "FAIL $id: instance not found"; continue; fi
+    count=$(instance_count "$id")
+    if [ "$count" != "1" ]; then
+      echo "FAIL $id: expected exactly 1 instance for (runId, ticketId), got $count"
+      fails=$((fails+1)); continue
+    fi
+    [ "$id" = "T-1001" ] && dedup_line="PASS dedup: duplicate messageId for T-1001 ignored"
     if ! state=$(poll instance_state_if_done "$key"); then
       echo "FAIL $id: instance $key not completed after ${TIMEOUT_SECONDS}s"; fails=$((fails+1)); continue
     fi
@@ -223,8 +248,49 @@ verify() {
       echo "PASS $id: path ok, resolution=$resolution, routing ok, slaDeadline=$sla_deadline"
     fi
   done
+  [ -n "$dedup_line" ] && echo "$dedup_line"
   [ "$fails" -eq 0 ] || { echo "$fails ticket(s) failed"; exit 1; }
   echo "all tickets passed"
+}
+
+# --check only: consume support.ticket.resolved and match this run's outcome events.
+# kcat is required for consuming; without it the check is skipped with a warning.
+check_resolved_topic() {
+  local broker="${KAFKA_BROKER:-${STAND_IP:-}:9092}"
+  if ! command -v kcat >/dev/null 2>&1; then
+    echo "WARN: kcat not found — skipping resolved-topic check"
+    return 0
+  fi
+  if [ "$broker" = ":9092" ]; then
+    echo "WARN: KAFKA_BROKER/STAND_IP not set — skipping resolved-topic check"
+    return 0
+  fi
+  local total lookback events fails=0 id t exp_res is_refund ev res rac
+  total=$(ticket_ids | wc -l | tr -d ' ')
+  lookback=$((total * 3)) # headroom for earlier runs still in the topic
+  events=$(kcat -b "$broker" -t "$RESOLVED_TOPIC" -C -o "-$lookback" -e -q 2>/dev/null \
+    | jq -Rc --arg run "$RUN_ID" 'fromjson? | select(.runId? == $run)')
+  for id in $(ticket_ids); do
+    t=$(ticket "$id")
+    exp_res=$(echo "$t" | jq -r '.expected.resolution')
+    is_refund=$(echo "$t" | jq -r '.expected.resolution == "refund_issued"')
+    ev=$(echo "$events" | jq -c --arg id "$id" 'select(.ticketId == $id)' | head -n 1)
+    if [ -z "$ev" ]; then
+      echo "FAIL resolved: no ${RESOLVED_TOPIC} event for $id (runId $RUN_ID)"
+      fails=$((fails+1)); continue
+    fi
+    res=$(echo "$ev" | jq -r '.resolution // empty')
+    rac=$(echo "$ev" | jq -r '.refundAmountCustomer // empty')
+    if [ "$res" != "$exp_res" ]; then
+      echo "FAIL resolved: $id resolution=$res, expected $exp_res"; fails=$((fails+1))
+    elif [ "$is_refund" = "true" ] && ! { [ -n "$rac" ] && awk -v v="$rac" 'BEGIN { exit !(v > 0) }'; }; then
+      echo "FAIL resolved: $id refundAmountCustomer='$rac', expected > 0"; fails=$((fails+1))
+    else
+      echo "PASS resolved: $id resolution=$res"
+    fi
+  done
+  [ "$fails" -eq 0 ] || { echo "$fails resolved event(s) failed"; exit 1; }
+  echo "resolved-topic check passed"
 }
 
 MODE=${1:-default}
@@ -244,6 +310,7 @@ case "$MODE" in
     fi
     RUN_ID=$(cat "$LAST_RUN_FILE")
     verify
+    check_resolved_topic
     ;;
   *)
     echo "usage: $0 [--manual-user-tasks | --check]" >&2; exit 2

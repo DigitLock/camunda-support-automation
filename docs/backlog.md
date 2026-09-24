@@ -25,6 +25,9 @@ Ideas parked here to keep the current phase focused. Each entry names the phase 
      run makes the next one fail confusingly.
    - **Measure install-from-scratch time** on the next clean-OS-plus-Docker run; recorded as
      ≤ 10 min without errors (design D2-6), not yet timed.
+   - **Phase 5 — Normalise `slaDeadline` (D3-11) — now mandatory.** The zoned date-time
+     format (`...Z[GMT]`) no longer stays internal: since process v6 it leaves the stand in
+     `support.ticket.resolved` events, so external consumers see a non-ISO value.
    - **After Phase 8 — Camunda Non-Commercial License application.** The stand currently runs
      without a key ("Non-Production License" banner). Apply for the non-commercial license and
      add the key through the environment once the project is published.

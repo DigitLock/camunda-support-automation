@@ -49,7 +49,13 @@ is stored in `.last-run` (git-ignored) for `--check`.
 - routing (`team`, `priority`, `slaHours`, `requiredChecks` as a set) and a non-empty
   `slaDeadline`;
 - FX variables: `bookingValueEur > 0` where the ticket has a `bookingValue` (absent
-  otherwise), `refundAmountCustomer > 0` on the cancel branch.
+  otherwise), `refundAmountCustomer > 0` on the cancel branch;
+- idempotency: every publish run re-sends T-1001 with the same `messageId`; verification
+  asserts exactly one instance per `(runId, ticketId)` and prints
+  `PASS dedup: duplicate messageId for T-1001 ignored`;
+- `--check` additionally consumes `support.ticket.resolved` (kcat required — skipped with
+  a WARN otherwise) and matches this run's events: one per ticket, `resolution` as
+  expected, `refundAmountCustomer > 0` on the cancel branch.
 
 One `PASS`/`FAIL` line per ticket; exit code is non-zero if anything failed.
 

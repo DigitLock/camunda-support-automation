@@ -1,7 +1,7 @@
 # Integrations v1 — design (Phase 4)
 
-**Status:** in progress — infrastructure (step 4.1) is in place; D4 decisions are recorded
-here as they are made during 4.2–4.x.
+**Status:** accepted — the flows below passed the Phase 4 acceptance (process v6, DMN v3,
+e2e 7/7 through Kafka).
 
 Related: ADR-005 (Kafka), ADR-006 (containers and profiles), ADR-007 (Kafka via Connectors),
 `process-v1.md`, `routing-v1.md`.
@@ -77,14 +77,98 @@ unchanged against the Phase 2 stub, plus `bookingStatus` from the Booking API re
 | D4-1 | Error contract: Booking API 2xx → complete with `{bookingStatus}`; 404 **or missing/null `bookingRef`** → BPMN error `BOOKING_NOT_FOUND`; 5xx or client timeout (10 s) → fail with `retries - 1` and errorMessage | Business absence is a modelled path, infrastructure trouble is a retry and then an incident; the missing-ref case cannot reach the API and is business absence too |
 | D4-2 | One binary serves both booking job types | Same dependency, same error contract; two polling loops inside one process cost less than two containers |
 | D4-3 | `/healthz` is age-based: 200 while the last successful activation poll (empty responses count) is < 60 s old | A worker that cannot reach the engine is unhealthy even though its process lives; job timeout 60 s covers the mock API's 30 s injected delay |
+| D4-6 | Branch service tasks map worker completion variables explicitly: `cancel-refund` maps `bookingStatus`/`refundAmount`/`refundCurrency`, `change-booking` maps `bookingStatus` | The branch tasks have carried an output mapping since v1 (`resolution` literal, D2-3) — and any output mapping makes **all** completion variables task-local. Symptom that led here: `convert-refund` evaluated its URL with `refundCurrency` = null → incident "No retries left" |
 
-## 6. Idempotency
+## 6. Flows
 
-To be designed in 4.2–4.3. Established pieces so far:
+Happy path of the cancel branch, Kafka to Kafka:
 
-- Message start events do not open a new instance while an active instance with the same
-  correlation key exists (`process-v1.md` §6); `correlationKey = ticketId`.
-- The e2e scripts disambiguate runs with `messageId = <ticketId>-<RUN_ID>`.
-- The inbound Kafka connector delivers at-least-once (ADR-007) — the dedup strategy for
-  redelivered `ticket.created` events (messageId from the Kafka record, TTL) is the open
-  question for 4.2.
+```mermaid
+sequenceDiagram
+    autonumber
+    participant P as Producer (e2e / external)
+    participant K as Kafka
+    participant C as Connectors runtime
+    participant Z as Orchestration Cluster
+    participant S as worker-stub
+    participant FX as fx-gateway
+    participant B as worker-booking
+    participant API as booking-api
+
+    P->>K: support.ticket.created (key=ticketId, messageId in payload)
+    K->>C: inbound Kafka connector consumes
+    C->>Z: start instance (dedup by messageId, TTL PT1H)
+    Z->>S: job ticket.classify
+    S-->>Z: intent, sentiment, confidence, needsReview
+    Z->>C: convert-booking-value (REST connector)
+    C->>FX: GET /convert?from=currency&to=EUR
+    FX-->>C: converted → bookingValueEur
+    Z->>Z: route-ticket (DMN routing-v1: team, priority, slaHours, requiredChecks)
+    Z->>B: job booking.cancel
+    B->>API: POST /bookings/{bookingRef}/cancel
+    API-->>B: 200 {status, value, currency}
+    B-->>Z: bookingStatus, refundAmount, refundCurrency
+    Z->>C: convert-refund (REST connector)
+    C->>FX: GET /convert?from=refundCurrency&to=customerCurrency
+    FX-->>C: converted → refundAmountCustomer
+    Z->>S: job ticket.notify
+    S-->>Z: notificationTemplate, notifiedAt
+    Z->>C: publish-resolved (Kafka outbound connector)
+    C->>K: support.ticket.resolved (key=ticketId)
+```
+
+Failure paths of the booking call and the start-event dedup:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant P as Producer
+    participant K as Kafka
+    participant C as Connectors runtime
+    participant Z as Orchestration Cluster
+    participant B as worker-booking
+    participant API as booking-api
+
+    alt booking-api returns 500
+        Z->>B: job booking.cancel (retries=3)
+        B->>API: POST .../cancel
+        API-->>B: 500
+        B->>Z: fail job (retries-1, errorMessage)
+        Note over Z: retries exhausted → incident in Operate
+    else client timeout (10 s)
+        B->>API: POST .../cancel
+        Note over API: BK-FAIL-TIMEOUT sleeps 30 s
+        B->>Z: fail job (retries-1, "call failed: timeout")
+        Note over Z: same path → incident
+    else booking not found (404)
+        B->>API: POST .../cancel
+        API-->>B: 404
+        B->>Z: BPMN error BOOKING_NOT_FOUND
+        Note over Z: no error boundary yet → incident<br/>(boundary event is Phase 6 scope)
+    else duplicate messageId within TTL
+        P->>K: same messageId again
+        K->>C: consumed
+        C->>Z: start attempt
+        Note over Z: rejected — messageId buffered for PT1H,<br/>no second instance
+    end
+```
+
+## 7. Idempotency
+
+The producer owns idempotency: every `support.ticket.created` event carries a `messageId`
+(`<ticketId>-<runId>` in the e2e set), and the Kafka start event connector uses it as the
+buffered-message id with TTL `PT1H` (D4-5). Within that window Zeebe rejects any repeat —
+whether a producer retry or a connector redelivery (the inbound connector is
+at-least-once, ADR-007) — and no second instance appears. After the window a re-send
+starts a fresh instance on purpose: incident drills in Phase 6 rely on being able to
+replay a ticket an hour later.
+
+Consequences:
+
+- consumers of `support.ticket.resolved` must tolerate at-least-once delivery themselves;
+  the event carries `ticketId` and `runId` for their dedup;
+- the dedup window is part of the contract: producers that need longer protection must
+  keep their own outbox/inbox bookkeeping;
+- every e2e publish run re-sends T-1001 with the same `messageId` and verification asserts
+  exactly one instance per `(runId, ticketId)` — the dedup path is exercised on every run,
+  not only in drills.
