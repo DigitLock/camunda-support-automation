@@ -3,7 +3,10 @@
 No SDK imports — each function is portable to Go (Phase 4) one handler at a time.
 Behaviour follows docs/design/process-v1.md §5.2, §5.6 and §7. Routing moved to DMN
 in Phase 3 (docs/design/routing-v1.md); the booking job types moved to the Go worker
-in Phase 4 (workers/booking/). Three job types remain: classify, answer, notify.
+in Phase 4 (workers/booking/). Since Phase 5 classify_ticket is the keyword fallback of
+the LLM classifier (classifier.py) and notify_customer supplies the deterministic
+notificationTemplate/notifiedAt next to the LLM message (generator.py); answer_ticket
+is unused since 5.4 (kept so HANDLERS documents the served job types).
 """
 
 from datetime import datetime, timezone

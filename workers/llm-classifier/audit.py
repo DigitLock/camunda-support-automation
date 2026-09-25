@@ -1,7 +1,7 @@
 """Mandatory audit writes to PostgreSQL (design D5-3).
 
-One row per ticket.classify (llm_audit) and one per review.record (classification_review,
-5.3). A failed write raises — the SDK then fails the job with
+One llm_audit row per ticket.classify / ticket.answer / ticket.notify (job_type column)
+and one classification_review row per review.record (5.3). A failed write raises — the SDK then fails the job with
 retries - 1, and exhausted retries surface as an incident in Operate. That is deliberate:
 an unauditable classification must not complete silently (verified against the SDK dev39
 source: any exception in a handler callback becomes a fail-job action).
@@ -46,24 +46,25 @@ class Audit:
             self._conn = psycopg.connect(self._url, autocommit=True)
         return self._conn
 
-    def write_classify(
+    def write_llm(
         self,
         *,
+        job_type: str,
         ticket_id: str,
         run_id: str | None,
         model: str,
         prompt_version: str,
-        subject: str,
-        body: str,
+        input_text: str,
         output: dict,
-        confidence: float | None,
-        needs_review: bool | None,
         fallback_used: bool,
+        confidence: float | None = None,
+        needs_review: bool | None = None,
         tokens_in: int | None = None,
         tokens_out: int | None = None,
         latency_ms: int | None = None,
     ) -> None:
-        input_hash = hashlib.sha256(f"{subject}\n{body}".encode()).hexdigest()
+        """One row per LLM job: job_type is classify | answer | notify."""
+        input_hash = hashlib.sha256(input_text.encode()).hexdigest()
         try:
             self._connection().execute(
                 """
@@ -71,12 +72,12 @@ class Audit:
                     (ticket_id, run_id, job_type, model, prompt_version, input_hash,
                      output, confidence, needs_review, fallback_used,
                      tokens_in, tokens_out, latency_ms)
-                VALUES (%s, %s, 'classify', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
-                    ticket_id, run_id, model, prompt_version, input_hash,
-                    json.dumps(output), confidence, needs_review, fallback_used,
-                    tokens_in, tokens_out, latency_ms,
+                    ticket_id, run_id, job_type, model, prompt_version, input_hash,
+                    json.dumps(output, ensure_ascii=False), confidence, needs_review,
+                    fallback_used, tokens_in, tokens_out, latency_ms,
                 ),
             )
         except psycopg.Error as exc:

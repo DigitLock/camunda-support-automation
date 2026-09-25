@@ -10,7 +10,9 @@ tickets are **produced to Kafka** (`support.ticket.created`) — the Kafka start
 connector is the only process entry — and verification still runs over the REST API:
 
 ```bash
-# verification (same as the workers)
+# verification (same as the workers); since 5.4 --check also asserts the LLM message
+# variables (customerMessage in the ticket language, answerText/answerKbIds on T-1003,
+# the refund amount inside T-1002's message)
 export CAMUNDA_BASE_URL=http://localhost:8080   # or the stand's address
 export CAMUNDA_USER=admin
 export CAMUNDA_PASSWORD=...                     # from infra/.env on the stand

@@ -211,10 +211,43 @@ routing_vars() {
     | jq -c '[.items[] | {(.name): (.value | try fromjson catch .)}] | add // {}'
 }
 
+# generation_vars INSTANCE_KEY — the 5.4 LLM outputs (process scope; answer* reach it
+# through the v8 output mappings on answer-question, notify-customer has none)
+generation_vars() {
+  api POST /variables/search "$(jq -cn --arg k "$1" \
+    '{filter: {processInstanceKey: $k, name: {"$in": ["customerMessage","messageLanguage","notifySource","answerText","answerSource","answerKbIds"]}}}')" \
+    | jq -c '[.items[] | {(.name): (.value | try fromjson catch .)}] | add // {}'
+}
+
+# generation_check TICKET_JSON ROUTING_JSON GENERATION_JSON — prints a failure reason or
+# nothing (5.4, D5-8/D5-9): customerMessage present in the ticket language for every
+# ticket; the answered branch carries answerText + answerKbIds; the refund message
+# names refundAmountCustomer (numeric match, so 320.5 and 320.50 both pass)
+generation_check() {
+  local t=$1 routing=$2 gen=$3 lang msg msg_lang exp_res rac
+  lang=$(echo "$t" | jq -r '.language')
+  exp_res=$(echo "$t" | jq -r '.expected.resolution')
+  msg=$(echo "$gen" | jq -r '.customerMessage // empty')
+  msg_lang=$(echo "$gen" | jq -r '.messageLanguage // empty')
+  if [ -z "$msg" ]; then echo "customerMessage missing or empty"; return; fi
+  if [ "$msg_lang" != "$lang" ]; then echo "messageLanguage='$msg_lang', expected '$lang'"; return; fi
+  if [ "$exp_res" = "answered" ]; then
+    if [ -z "$(echo "$gen" | jq -r '.answerText // empty')" ]; then echo "answerText missing or empty"; return; fi
+    if [ "$(echo "$gen" | jq -r '.answerKbIds // [] | length')" = "0" ]; then echo "answerKbIds empty"; return; fi
+  fi
+  if [ "$exp_res" = "refund_issued" ]; then
+    rac=$(echo "$routing" | jq -r '.refundAmountCustomer // empty')
+    if ! echo "$msg" | grep -oE '[0-9]+([.,][0-9]+)?' | tr ',' '.' \
+         | awk -v v="$rac" 'BEGIN { ok = 0 } { if ($1 + 0 == v + 0) ok = 1 } END { exit !ok }'; then
+      echo "customerMessage does not contain refundAmountCustomer=$rac: $(echo "$msg" | tr '\n' ' ' | cut -c1-120)"; return
+    fi
+  fi
+}
+
 verify() {
   echo "run $RUN_ID: verifying"
   local id t key state actual expected path_fail fails=0 resolution template exp_res
-  local routing actual_routing expected_routing sla_deadline
+  local routing actual_routing expected_routing sla_deadline gen gen_fail
   local bve rac has_bv is_refund fx_fail count dedup_line=""
   for id in $(ticket_ids); do
     t=$(ticket "$id")
@@ -267,6 +300,8 @@ verify() {
       { [ -n "$rac" ] && awk -v v="$rac" 'BEGIN { exit !(v > 0) }'; } \
         || fx_fail="refundAmountCustomer='$rac', expected > 0"
     fi
+    gen=$(generation_vars "$key")
+    gen_fail=$(generation_check "$t" "$routing" "$gen")
     if [ -n "$path_fail" ]; then
       echo "FAIL $id: path mismatch $path_fail (actual $actual)"; fails=$((fails+1))
     elif [ "$resolution" != "$exp_res" ] || [ "$template" != "notify-$exp_res" ]; then
@@ -280,8 +315,10 @@ verify() {
       echo "FAIL $id: slaDeadline='$sla_deadline' is not plain ISO 8601 with zone (D3-11)"; fails=$((fails+1))
     elif [ -n "$fx_fail" ]; then
       echo "FAIL $id: $fx_fail"; fails=$((fails+1))
+    elif [ -n "$gen_fail" ]; then
+      echo "FAIL $id: generation: $gen_fail"; fails=$((fails+1))
     else
-      echo "PASS $id: path ok, resolution=$resolution, routing ok, slaDeadline=$sla_deadline"
+      echo "PASS $id: path ok, resolution=$resolution, routing ok, slaDeadline=$sla_deadline, message ok ($(echo "$gen" | jq -r '.messageLanguage')/$(echo "$gen" | jq -r '.notifySource // "?"'))"
     fi
   done
   [ -n "$dedup_line" ] && echo "$dedup_line"

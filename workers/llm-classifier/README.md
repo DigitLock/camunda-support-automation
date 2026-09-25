@@ -12,8 +12,14 @@ the cache activates by itself once the prompt grows past that), guardrails
 threshold, cross-check — D5-2/D5-7) and the mandatory audit row (`audit.py`, D5-3).
 Since 5.3 `review.record` writes the outcome of the `review-classification` user task
 to `classification_review` (final values from the form, LLM values from the latest
-`llm_audit` row of the same ticket/run — D5-4). `ticket.answer` / `ticket.notify` stay
-deterministic until 5.4. Calibration: `tests/classification/report.sh`.
+`llm_audit` row of the same ticket/run — D5-4). Since 5.4 `ticket.answer` and
+`ticket.notify` generate customer text on `LLM_MODEL_GENERATE` through `generator.py`:
+structured output `{text, language, usedKbIds}`, local guardrails
+(`llm/generation_guardrails.py`: language, number grounding, KB ids, length — D5-9), one
+retry, then the templates in `rules.py`; the answer prompt carries `prompts/kb_tourism.md`
+(D5-11). Provider timeout 30 s with one SDK retry per call, job timeout 90 s for the two
+generation types. Calibration: `tests/classification/report.sh`,
+`tests/generation/report.sh`.
 
 Runs as the `worker-llm-classifier` container in the `workers` compose profile (ADR-006):
 built by `make deploy`, healthcheck on `:8081/healthz`, clean shutdown on SIGTERM. The
@@ -66,5 +72,5 @@ is database-only and lives entirely in `worker.py` + `audit.py`.
 |---|---|
 | `ticket.classify` | LLM path: `intent`, `sentiment`, `confidence`, `needsReview`, `classifierSource` (`llm`\|`fallback`), `promptVersion`, `rationale`, `detectedLanguage` (`language` from the payload is never overwritten); on LLM failure — keyword rules + `needsReview=true` |
 | `review.record` | `{}` — inserts a `classification_review` row: `reviewed_by` (`reviewedBy`, `unknown` if empty), `final_intent`/`final_sentiment`/`escalated` from the form, `llm_intent`/`llm_sentiment` from `llm_audit`; write failure fails the job (D5-3) |
-| `ticket.answer` | `{}` (logs only; LLM in 5.4) |
-| `ticket.notify` | `notificationTemplate` = `notify-<resolution>`, `notifiedAt` (ISO 8601 UTC; LLM in 5.4) |
+| `ticket.answer` | `answerText` (grounded in the KB, reply language per D5-8), `answerSource` (`llm`\|`fallback`), `answerKbIds` (cited sections; `["KB-11"]` = handover to an agent); audit row `job_type=answer` |
+| `ticket.notify` | `customerMessage`, `messageLanguage`, `notifySource` (`llm`\|`fallback`) from the LLM, plus the deterministic `notificationTemplate` = `notify-<resolution>` and `notifiedAt`; delivery is a `deliver ticketId=…` log line (D5-5); audit row `job_type=notify` |

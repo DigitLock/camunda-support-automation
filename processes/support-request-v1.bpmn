@@ -78,6 +78,9 @@
         <zeebe:taskDefinition type="ticket.answer" />
         <zeebe:ioMapping>
           <zeebe:output source="=&#34;answered&#34;" target="resolution" />
+          <zeebe:output source="=answerText" target="answerText" />
+          <zeebe:output source="=answerSource" target="answerSource" />
+          <zeebe:output source="=answerKbIds" target="answerKbIds" />
         </zeebe:ioMapping>
       </bpmn:extensionElements>
       <bpmn:incoming>question</bpmn:incoming>

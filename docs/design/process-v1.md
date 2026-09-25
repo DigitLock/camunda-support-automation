@@ -56,7 +56,7 @@ The four resolving branches feed `notify-customer` directly (multiple incoming s
 | `gw-review-exit` | Exclusive gateway | Escalate? | conditions in §4 |
 | `change-booking` | Service task | Change booking | job type `booking.change`; output `resolution = "booking_changed"` |
 | `cancel-refund` | Service task | Cancel and refund | job type `booking.cancel`; output `resolution = "refund_issued"` |
-| `answer-question` | Service task | Answer question | job type `ticket.answer`; output `resolution = "answered"` |
+| `answer-question` | Service task | Answer question | job type `ticket.answer`; outputs `resolution = "answered"`, `answerText`, `answerSource`, `answerKbIds` (v8, §11) |
 | `handle-by-agent` | User task (Camunda user task) | Handle by agent | linked form `handle-by-agent`; output `resolution = "agent_handled"` |
 | `notify-customer` | Service task | Notify customer | job type `ticket.notify` |
 | `end-resolved` | End event | Resolved | — |
@@ -283,6 +283,32 @@ E2E (`tests/e2e`): `record-review` is part of T-1004's expected path and an allo
 element for any other ticket that visits review; `--check` asserts the ISO format of
 `slaDeadline` for every ticket and the `classification_review` row for T-1004
 (`llm_intent = other`, `final_intent = question`).
+
+### v7→v8 (Phase 5.4)
+
+Deployed as **process v8** (DMN unchanged). One change: `answer-question` gets three
+pass-through output mappings next to its `resolution` literal — `=answerText` →
+`answerText`, `=answerSource` → `answerSource`, `=answerKbIds` → `answerKbIds`. Without
+them the LLM answer produced by `ticket.answer` (5.4, `llm-classifier-v1.md` §6) would
+stay task-local and never reach `notify-customer`. `notify-customer` has no output
+mappings, so `customerMessage`, `messageLanguage` and `notifySource` land in the process
+scope directly.
+
+**D4-6 rule of thumb, third occurrence (v5 branch tasks, v7 user task, v8 answer task):**
+a task with *any* output mapping must map out *every* completion variable it wants in
+the process scope. Corollary for this model: every task that carries a `resolution`
+literal is affected, so a new worker variable on `change-booking`, `cancel-refund`,
+`answer-question` or `handle-by-agent` always comes with a mapping.
+
+Accepted live in run `20260925T121224Z`.
+
+![Operate: T-1003 answer variables on v8](../assets/phase-5/operate-v8-answer-vars.png)
+
+*Operate — T-1003 variables: `answerText` and `answerKbIds` in the process scope via the v8 mappings, `customerMessage` from notify-customer.*
+
+![Operate: T-1002 refund amount in the customer message](../assets/phase-5/operate-v8-notify-refund.png)
+
+*Operate — T-1002: `refundAmountCustomer` repeated verbatim inside `customerMessage` (grounding check D5-9).*
 
 ## 12. Decisions
 
