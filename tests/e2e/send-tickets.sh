@@ -13,6 +13,7 @@
 #   send-tickets.sh --check             verify the most recent run (reads .last-run)
 #
 # Env contract (same as workers/llm-classifier): CAMUNDA_BASE_URL, CAMUNDA_USER, CAMUNDA_PASSWORD.
+# --check additionally needs STAND_HOST (SSH alias) for the classification_review query.
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -23,6 +24,9 @@ TOPIC=support.ticket.created
 RESOLVED_TOPIC=support.ticket.resolved
 TIMEOUT_SECONDS=60
 POLL_INTERVAL=2
+# slaDeadline must be plain ISO 8601 with a zone — no engine [GMT] suffix (D3-11, process v7)
+ISO_ZONED_RE='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$'
+REVIEW_TICKET=T-1004   # the one ticket with a hard review expectation (design §8)
 
 for var in CAMUNDA_BASE_URL CAMUNDA_USER CAMUNDA_PASSWORD; do
   if [ -z "${!var:-}" ]; then
@@ -229,13 +233,14 @@ verify() {
     fi
     # Path check by final resolution: the expected path must be fully present, and any
     # extra elements may only be the review detour (borderline confidence can send any
-    # ticket there — D5-2 note). T-1004 keeps its hard review expectation because
-    # review-classification is part of its expected.path.
+    # ticket there — D5-2 note); since v7 the detour is review-classification →
+    # record-review → gw-review-exit → route-ticket (D5-4). T-1004 keeps its hard review
+    # expectation because review-classification is part of its expected.path.
     actual=$(api POST /element-instances/search "$(jq -cn --arg k "$key" '{filter: {processInstanceKey: $k, state: "COMPLETED"}}')" \
       | jq -c --arg pid "$PROCESS_ID" '[.items[].elementId | select(. != $pid)] | unique')
     expected=$(echo "$t" | jq -c '.expected.path | unique')
     path_fail=$(jq -cn --argjson a "$actual" --argjson e "$expected" '
-      {missing: ($e - $a), extra: (($a - $e) - ["review-classification", "gw-review-exit"])}
+      {missing: ($e - $a), extra: (($a - $e) - ["review-classification", "record-review", "gw-review-exit"])}
       | if .missing == [] and .extra == [] then empty else . end')
     resolution=$(variable_value "$key" resolution)
     template=$(variable_value "$key" notificationTemplate)
@@ -271,6 +276,8 @@ verify() {
       echo "FAIL $id: routing $actual_routing, expected $expected_routing"; fails=$((fails+1))
     elif [ -z "$sla_deadline" ]; then
       echo "FAIL $id: slaDeadline is missing or empty"; fails=$((fails+1))
+    elif ! [[ "$sla_deadline" =~ $ISO_ZONED_RE ]]; then
+      echo "FAIL $id: slaDeadline='$sla_deadline' is not plain ISO 8601 with zone (D3-11)"; fails=$((fails+1))
     elif [ -n "$fx_fail" ]; then
       echo "FAIL $id: $fx_fail"; fails=$((fails+1))
     else
@@ -322,6 +329,36 @@ check_resolved_topic() {
   echo "resolved-topic check passed"
 }
 
+# --check only: the review loop must have written one classification_review row for the
+# review ticket of this run (5.3, D5-4): llm_intent as classified, final_intent as corrected
+# in the form. Runs psql inside the postgres container over SSH; without STAND_HOST the check
+# is skipped with a warning.
+check_classification_review() {
+  if [ -z "${STAND_HOST:-}" ]; then
+    echo "WARN: STAND_HOST not set — skipping classification_review check"
+    return 0
+  fi
+  local exp_llm exp_final sql row
+  exp_llm=$(ticket "$REVIEW_TICKET" | jq -r '.expected.review.llmIntent')
+  exp_final=$(ticket "$REVIEW_TICKET" | jq -r '.expected.review.finalIntent')
+  sql="SELECT llm_intent, final_intent, reviewed_by, escalated FROM classification_review
+       WHERE ticket_id = '$REVIEW_TICKET' AND run_id = '$RUN_ID' ORDER BY id DESC LIMIT 1;"
+  # SQL travels over stdin (ssh → docker compose exec -T → psql), so no nested quoting
+  row=$(printf '%s\n' "$sql" | ssh "$STAND_HOST" \
+    'cd /opt/camunda-support-automation/infra && docker compose exec -T postgres sh -c '"'"'psql -q -tA -U "$POSTGRES_USER" -d "$POSTGRES_DB"'"'"'' \
+    | tail -n1)
+  if [ -z "$row" ]; then
+    echo "FAIL review: no classification_review row for $REVIEW_TICKET (runId $RUN_ID)"; exit 1
+  fi
+  local llm final
+  IFS='|' read -r llm final _ <<< "$row"
+  if [ "$llm" != "$exp_llm" ] || [ "$final" != "$exp_final" ]; then
+    echo "FAIL review: $REVIEW_TICKET llm_intent=$llm final_intent=$final, expected $exp_llm/$exp_final ($row)"
+    exit 1
+  fi
+  echo "PASS review: $REVIEW_TICKET classification_review row $row"
+}
+
 MODE=${1:-default}
 case "$MODE" in
   default)
@@ -340,6 +377,7 @@ case "$MODE" in
     RUN_ID=$(cat "$LAST_RUN_FILE")
     verify
     check_resolved_topic
+    check_classification_review
     ;;
   *)
     echo "usage: $0 [--manual-user-tasks | --check]" >&2; exit 2

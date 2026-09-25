@@ -295,8 +295,9 @@ Symptom → cause → fix entries are added here the moment something breaks dur
   all completion variables task-local, so the form's `intent` never reaches the process
   scope.
   **Fix:** process v7 (Phase 5.3): explicit output mappings for
-  `intent`/`sentiment`/`escalate` on `review-classification`, together with the D5-4
-  re-routing. Known v6 limitation until then.
+  `intent`/`sentiment`/`escalate`/`reviewedBy` on `review-classification`, together with
+  the D5-4 re-routing (`docs/design/process-v1.md` §11). Rule of thumb: a task with any
+  output mapping must map out *every* completion variable it wants in the process scope.
 - **Symptom:** the API still answers 200 without credentials after enabling protection.
   **Cause:** the config was edited on the workstation but not synced to the VM; Compose
   restarted the old files.

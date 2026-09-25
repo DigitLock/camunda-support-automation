@@ -18,6 +18,7 @@ export CAMUNDA_PASSWORD=...                     # from infra/.env on the stand
 # producing: kcat (brew install kcat) against the stand's EXTERNAL Kafka listener
 export STAND_IP=...                             # VM address; or KAFKA_BROKER=host:9092
 # without kcat the script falls back to kafka-console-producer over SSH (needs STAND_HOST)
+export STAND_HOST=camunda-stand                 # --check queries classification_review over SSH (5.3)
 ```
 
 ## Modes

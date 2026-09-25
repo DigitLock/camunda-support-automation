@@ -1,7 +1,7 @@
 {
   "components": [
     {
-      "text": "Classifier suggested **{{intent}}** (confidence {{confidence}})",
+      "text": "### Ticket {{ticketId}}\n\n**Subject:** {{subject}}\n\n{{body}}\n\n---\n**LLM classification** · source: `{{classifierSource}}` · confidence: **{{confidence}}**\n\nintent: `{{intent}}` · sentiment: `{{sentiment}}` · language: `{{detectedLanguage}}`\n\n_{{rationale}}_",
       "type": "text",
       "layout": {
         "row": "Row_1hnrhlg",
@@ -10,7 +10,7 @@
       "id": "Field_0e87ftu"
     },
     {
-      "label": "Intent",
+      "label": "Intent (corrected)",
       "values": [
         {
           "label": "Change booking",
@@ -41,6 +41,33 @@
       }
     },
     {
+      "label": "Sentiment (corrected)",
+      "values": [
+        {
+          "label": "Negative",
+          "value": "negative"
+        },
+        {
+          "label": "Neutral",
+          "value": "neutral"
+        },
+        {
+          "label": "Positive",
+          "value": "positive"
+        }
+      ],
+      "type": "select",
+      "layout": {
+        "row": "Row_0v9s8xd",
+        "columns": null
+      },
+      "id": "Field_1c7mxna",
+      "key": "sentiment",
+      "validate": {
+        "required": true
+      }
+    },
+    {
       "label": "Escalate to agent",
       "type": "checkbox",
       "layout": {
@@ -49,6 +76,16 @@
       },
       "id": "Field_1dephsh",
       "key": "escalate"
+    },
+    {
+      "label": "Reviewed by",
+      "type": "textfield",
+      "layout": {
+        "row": "Row_1fkdupp",
+        "columns": null
+      },
+      "id": "Field_02dg1js",
+      "key": "reviewedBy"
     }
   ],
   "type": "default",

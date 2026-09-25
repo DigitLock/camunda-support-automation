@@ -1,8 +1,11 @@
-"""LLM classifier worker (Phase 5): serves ticket.classify, ticket.answer, ticket.notify.
+"""LLM classifier worker (Phase 5): serves ticket.classify, review.record, ticket.answer,
+ticket.notify.
 
 ticket.classify runs the real LLM path since 5.2: classifier.py (Claude call → guardrails
 → retry → keyword fallback, D5-2/D5-7), mandatory audit to PostgreSQL (audit.py, D5-3).
-ticket.answer / ticket.notify still answer from the deterministic rules — LLM in 5.4.
+review.record (5.3) writes the human review outcome to classification_review, pairing the
+form's final values with the LLM's from the audit (D5-4). ticket.answer / ticket.notify
+still answer from the deterministic rules — LLM in 5.4.
 Design: docs/design/llm-classifier-v1.md.
 
 Configuration via environment: CAMUNDA_BASE_URL, CAMUNDA_USER, CAMUNDA_PASSWORD,
@@ -70,6 +73,29 @@ def make_classify_callback(clf: classifier.Classifier, auditor: audit.Audit):
     return callback
 
 
+def make_review_callback(auditor: audit.Audit):
+    async def callback(job) -> dict:
+        variables = job.variables.to_dict() if job.variables else {}
+        ticket_id = str(variables.get("ticketId"))
+        run_id = variables.get("runId")
+        reviewed_by = variables.get("reviewedBy") or "unknown"
+        llm_intent, llm_sentiment = auditor.latest_classify(ticket_id=ticket_id, run_id=run_id)
+        review = {
+            "reviewed_by": reviewed_by,
+            "llm_intent": llm_intent,
+            "final_intent": variables.get("intent"),
+            "llm_sentiment": llm_sentiment,
+            "final_sentiment": variables.get("sentiment"),
+            "escalated": bool(variables.get("escalate")),
+        }
+        # mandatory write — an exception fails the job on purpose (D5-3)
+        auditor.write_review(ticket_id=ticket_id, run_id=run_id, **review)
+        log.info("job=review.record ticketId=%s -> %s", ticket_id, review)
+        return {}
+
+    return callback
+
+
 def make_callback(job_type: str, handler):
     async def callback(job) -> dict:
         variables = job.variables.to_dict() if job.variables else {}
@@ -109,18 +135,20 @@ async def main() -> None:
             "CAMUNDA_BASIC_AUTH_PASSWORD": require_env("CAMUNDA_PASSWORD"),
         }
     )
-    for job_type, handler in HANDLERS.items():
-        if job_type == "ticket.classify":
-            cb = make_classify_callback(clf, auditor)
-        else:
-            cb = make_callback(job_type, handler)
+    callbacks = {
+        job_type: make_classify_callback(clf, auditor) if job_type == "ticket.classify"
+        else make_callback(job_type, handler)
+        for job_type, handler in HANDLERS.items()
+    }
+    callbacks["review.record"] = make_review_callback(auditor)
+    for job_type, cb in callbacks.items():
         client.create_job_worker(
             config=WorkerConfig(job_type=job_type, job_timeout_milliseconds=30_000),
             callback=cb,
         )
     start_health_server()
     log.info(
-        "polling job types: %s (prompt version %s)", ", ".join(HANDLERS), clf.prompt_version
+        "polling job types: %s (prompt version %s)", ", ".join(callbacks), clf.prompt_version
     )
 
     # SIGTERM (compose stop) cancels run_workers(), which stops all pollers cleanly.

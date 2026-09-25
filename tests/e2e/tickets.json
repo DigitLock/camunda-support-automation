@@ -130,6 +130,7 @@
         "gw-review-exit",
         "notify-customer",
         "publish-resolved",
+        "record-review",
         "review-classification",
         "route-ticket",
         "start-ticket-created"
@@ -142,6 +143,10 @@
           "needsReview": false,
           "escalate": false
         }
+      },
+      "review": {
+        "llmIntent": "other",
+        "finalIntent": "question"
       },
       "routing": {
         "team": "support",

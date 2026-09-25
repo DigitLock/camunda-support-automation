@@ -1,6 +1,7 @@
 """Mandatory audit writes to PostgreSQL (design D5-3).
 
-One row per ticket.classify. A failed write raises — the SDK then fails the job with
+One row per ticket.classify (llm_audit) and one per review.record (classification_review,
+5.3). A failed write raises — the SDK then fails the job with
 retries - 1, and exhausted retries surface as an incident in Operate. That is deliberate:
 an unauditable classification must not complete silently (verified against the SDK dev39
 source: any exception in a handler callback becomes a fail-job action).
@@ -79,13 +80,61 @@ class Audit:
                 ),
             )
         except psycopg.Error as exc:
-            # close so the next attempt reconnects cleanly, then let the job fail (D5-3)
-            try:
-                self._conn.close()
-            except Exception:
-                pass
-            self._conn = None
+            self._reset()
             raise RuntimeError(f"audit write failed: {exc}") from exc
+
+    def latest_classify(self, *, ticket_id: str, run_id: str | None) -> tuple[str | None, str | None]:
+        """(intent, sentiment) of the newest classify row for the ticket/run, or (None, None)."""
+        try:
+            row = self._connection().execute(
+                """
+                SELECT output->>'intent', output->>'sentiment'
+                FROM llm_audit
+                WHERE ticket_id = %s AND run_id IS NOT DISTINCT FROM %s AND job_type = 'classify'
+                ORDER BY id DESC LIMIT 1
+                """,
+                (ticket_id, run_id),
+            ).fetchone()
+        except psycopg.Error as exc:
+            self._reset()
+            raise RuntimeError(f"audit read failed: {exc}") from exc
+        return (row[0], row[1]) if row else (None, None)
+
+    def write_review(
+        self,
+        *,
+        ticket_id: str,
+        run_id: str | None,
+        reviewed_by: str,
+        llm_intent: str | None,
+        final_intent: str | None,
+        llm_sentiment: str | None,
+        final_sentiment: str | None,
+        escalated: bool,
+    ) -> None:
+        try:
+            self._connection().execute(
+                """
+                INSERT INTO classification_review
+                    (ticket_id, run_id, reviewed_by, llm_intent, final_intent,
+                     llm_sentiment, final_sentiment, escalated)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (ticket_id, run_id, reviewed_by, llm_intent, final_intent,
+                 llm_sentiment, final_sentiment, escalated),
+            )
+        except psycopg.Error as exc:
+            self._reset()
+            raise RuntimeError(f"review write failed: {exc}") from exc
+
+    def _reset(self) -> None:
+        """Close so the next attempt reconnects cleanly; the caller lets the job fail (D5-3)."""
+        try:
+            if self._conn is not None:
+                self._conn.close()
+        except Exception:
+            pass
+        self._conn = None
 
 
 def from_env() -> Audit:

@@ -51,7 +51,8 @@ The four resolving branches feed `notify-customer` directly (multiple incoming s
 | `route-ticket` | Service task | Route ticket | job type `ticket.route` |
 | `gw-needs-review` | Exclusive gateway | Needs review? | conditions in §4 |
 | `gw-intent` | Exclusive gateway | Intent? | conditions in §4 |
-| `review-classification` | User task (Camunda user task) | Review classification | linked form `review-classification`; output `needsReview = false` |
+| `review-classification` | User task (Camunda user task) | Review classification | linked form `review-classification`; outputs `needsReview = false`, `intent`, `sentiment`, `escalate`, `reviewedBy` (v7, §12) |
+| `record-review` | Service task | Record review | job type `review.record` (v7, §12); no I/O mappings |
 | `gw-review-exit` | Exclusive gateway | Escalate? | conditions in §4 |
 | `change-booking` | Service task | Change booking | job type `booking.change`; output `resolution = "booking_changed"` |
 | `cancel-refund` | Service task | Cancel and refund | job type `booking.cancel`; output `resolution = "refund_issued"` |
@@ -93,9 +94,9 @@ Every gateway has mutually exclusive conditions plus a default flow, so branch s
 | # | Target | Condition (FEEL) |
 |---|---|---|
 | 1 | `handle-by-agent` | `escalate = true` |
-| 2 | `gw-intent` | default flow |
+| 2 | `route-ticket` (v7; `gw-intent` in v1–v6) | default flow |
 
-The return from `gw-review-exit` enters `gw-intent` directly, after `gw-needs-review`, so a reviewed ticket cannot loop back into review. `review-classification` also sets `needsReview = false` via output mapping to record that the review happened.
+Since v7 the default flow re-enters `route-ticket` (D5-4, §12): the DMN and `slaDeadline` are recomputed from the corrected `intent`/`sentiment`, then `gw-needs-review` passes the ticket on to `gw-intent` because `review-classification` set `needsReview = false` via output mapping — the loop is closed by that mapping, not by topology.
 
 ## 5. Variables
 
@@ -135,7 +136,9 @@ The return from `gw-review-exit` enters `gw-intent` directly, after `gw-needs-re
 | Task | Name | Type | Notes |
 |---|---|---|---|
 | `review-classification` | `intent` | string | overwrites classifier value |
+| `review-classification` | `sentiment` | string | overwrites classifier value (v7) |
 | `review-classification` | `escalate` | boolean | default `false` |
+| `review-classification` | `reviewedBy` | string | reviewer name; `"unknown"` when the field is left empty (v7 output mapping) |
 | `handle-by-agent` | `agentNote` | string | free text |
 
 ### 5.5 Produced by output mappings
@@ -144,6 +147,7 @@ The return from `gw-review-exit` enters `gw-intent` directly, after `gw-needs-re
 |---|---|---|---|
 | `change-booking`, `cancel-refund`, `answer-question`, `handle-by-agent` | `resolution` | string | `booking_changed` \| `refund_issued` \| `answered` \| `agent_handled` |
 | `review-classification` | `needsReview` | boolean | `false` |
+| `review-classification` | `intent`, `sentiment`, `escalate`, `reviewedBy` | as in §5.4 | v7: explicit pass-through mappings (D4-6 — any output mapping makes completion variables task-local, so the form values need mapping out) |
 
 ### 5.6 Produced by `ticket.notify`
 
@@ -200,7 +204,7 @@ Every handler logs one line: `job=<type> ticketId=<id> -> <returned variables>`.
 | 1 | `T-1001` | Change my flight date | classify → route → change-booking | — | `booking_changed` |
 | 2 | `T-1002` | Please cancel and refund | classify → route → cancel-refund | — | `refund_issued` |
 | 3 | `T-1003` | What is the baggage limit? | classify → route → answer-question | — | `answered` |
-| 4 | `T-1004` | unclear request about my trip | classify → route → gw-needs-review → review-classification → gw-review-exit → gw-intent → answer-question | `intent=question, needsReview=false, escalate=false` | `answered` |
+| 4 | `T-1004` | unclear request about my trip | classify → route → gw-needs-review → review-classification → record-review → gw-review-exit → route-ticket → gw-needs-review → gw-intent → answer-question (v7 loop) | `intent=question, needsReview=false, escalate=false` | `answered` |
 | 5 | `T-1005` | Complaint about staff | classify → route → handle-by-agent | `agentNote="Called customer"` | `agent_handled` |
 
 Tickets 1, 2 and 4 carry `bookingRef`/`bookingValue`/`currency`; 3 and 5 send `null` for all three. Ticket 5 has `customerTier = "premium"` to show `priority = "high"`.
@@ -243,11 +247,48 @@ New flow order: `start-ticket-created` → `classify-ticket` → `gw-has-booking
 Removed with v5/v6: nothing — the REST publication path disappears operationally (D4-4),
 the model keeps the same single start event, now Kafka-backed.
 
-## 11. Decisions
+## 11. v6→v7 changes (Phase 5.3)
+
+Deployed as **process v7** (DMN unchanged, v3). The review loop now actually corrects the
+routing (D5-4 in `llm-classifier-v1.md`) and the review outcome is recorded (5.3). Accepted
+live in run `20260925T063333Z`.
+
+![Tasklist: review-classification form v7](../assets/phase-5/tasklist-review-form.png)
+
+*Tasklist — the v7 review form for T-1004: corrected intent and sentiment, escalate, reviewer.*
+
+![Operate: T-1004 through the v7 review loop](../assets/phase-5/operate-v7-review-loop.png)
+
+*Operate — T-1004's path: review-classification → record-review → gw-review-exit → route-ticket → gw-intent → answer-question.*
+
+```mermaid
+flowchart LR
+    R[route-ticket<br/>DMN + slaDeadline] --> NR{gw-needs-review}
+    NR -- needsReview --> RV[/review-classification<br/>out: needsReview=false,<br/>intent, sentiment, escalate, reviewedBy/]
+    NR -- default --> G{gw-intent}
+    RV --> REC[record-review<br/>review.record]
+    REC --> GR{gw-review-exit}
+    GR -- escalate --> A[/handle-by-agent/]
+    GR -- "default (v7: back to routing)" --> R
+```
+
+| # | Change | Why |
+|---|---|---|
+| 1 | `review-classification` gets explicit output mappings `intent`, `sentiment`, `escalate`, `reviewedBy` (FEEL: `"unknown"` when the form field is empty or undefined) next to the existing `needsReview = false` | **D4-6 defect:** the v6 task already carried one output mapping (`needsReview`), and any output mapping makes *all* completion variables task-local. The form's corrected `intent` therefore never reached the process scope — T-1004 corrected to `question` still ended in `handle-by-agent` (seen live in the 5.2 acceptance). Same root cause as the v5 branch tasks, fixed the same way |
+| 2 | New service task `record-review` (job type `review.record`) between `review-classification` and `gw-review-exit`, no I/O mappings | Persists the review to `classification_review` (`workers/llm-classifier`, D5-3 semantics: DB failure fails the job). Sits before the gateway so the escalate path is recorded too |
+| 3 | `gw-review-exit` default flow → `route-ticket` (was `gw-intent`); the loop then passes `gw-needs-review` → `gw-intent` | D5-4: DMN outputs and `slaDeadline` are recomputed from the corrected `intent`/`sentiment`. No second review: the output mapping set `needsReview = false`. Escalation still bypasses routing (the agent takes over) |
+| 4 | `route-ticket` output `slaDeadline` is normalised in the mapping to plain ISO 8601 with a zone (`…Z` or `±hh:mm`) — the engine's `[GMT]` zone-id suffix is stripped | D3-11 closed (`routing-v1.md`): since v6 the value leaves the stand in `support.ticket.resolved`, and external consumers expect ISO 8601 |
+
+E2E (`tests/e2e`): `record-review` is part of T-1004's expected path and an allowed extra
+element for any other ticket that visits review; `--check` asserts the ISO format of
+`slaDeadline` for every ticket and the `classification_review` row for T-1004
+(`llm_intent = other`, `final_intent = question`).
+
+## 12. Decisions
 
 | # | Decision | Rationale |
 |---|---|---|
-| D2-1 | `review-classification` returns to `gw-intent`; `escalate` is the exit to the agent | Keeps the guardrail a guardrail, not a second agent path |
+| D2-1 | `review-classification` returns to `gw-intent` (v7: via `route-ticket`, D5-4); `escalate` is the exit to the agent | Keeps the guardrail a guardrail, not a second agent path |
 | D2-2 | One `notify-customer`; branch identity carried in `resolution` | One job type, one LLM hook in Phase 5; branches stay visible in Operate via path and variables |
 | D2-3 | `resolution` set by output mapping, not by workers | Routing knowledge lives in the model |
 | D2-4 | `intent` ∈ {`change_booking`, `cancel_refund`, `question`, `other`}; review threshold `confidence < 0.7` | Four values map onto the branches without ambiguity; `other` falls to the default flow |

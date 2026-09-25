@@ -136,7 +136,7 @@ Everything downstream (`gw-needs-review`, `gw-intent`, branch tasks, `notify-cus
 
 - T-1001 … T-1005: paths and expected `team / priority / slaHours` unchanged. **Pre-check:** if any `standard` ticket has `bookingValue > 1000`, its expected priority would flip to `high` — lower the value in `tickets.json` rather than change the expectation.
 - **T-1006** (new): `intent = question`, `customerTier = standard`, `sentiment = negative`, `bookingValue = null`. Expected: `support / high / 4`, `requiredChecks = []`, path `answer-question` → `notify-customer` → `end-resolved`. This is the only ticket where `high` comes from sentiment alone.
-- `send-tickets.sh --check` additionally asserts `team`, `priority`, `slaHours`, `requiredChecks` (as a set) and that `slaDeadline` is a non-empty string; the deadline's serialization format is fixed by D3-11.
+- `send-tickets.sh --check` additionally asserts `team`, `priority`, `slaHours`, `requiredChecks` (as a set) and that `slaDeadline` is a non-empty string; since Phase 5.3 also that it is plain ISO 8601 with a zone (D3-11).
 
 Every ticket must carry `bookingValue` in the message payload (`null` for question/other tickets) — see §2.
 
@@ -193,4 +193,4 @@ C10 = T-1006. C14/C15 are the threshold boundary. C17 exercises the default row 
 | D3-8 | `route-team` uses FIRST with a catch-all row rather than UNIQUE | Unexpected intent values route to escalation instead of producing `null` and an incident |
 | D3-9 | `route-ticket` guards the COLLECT result: `if ... = null then [] else ...` | COLLECT with no matching rule returns `null`, not `[]`; without the guard `requiredChecks` would be `null` for tickets with no checks |
 | D3-10 | Decision wiring is asserted only by tests that compare all outputs | A decision left unwired in the DRD does not fail evaluation — its FEEL name silently resolves to `null`; nothing in deployment or Operate flags it |
-| D3-11 | `slaDeadline` is stored as serialized by the engine: `"2026-09-24T20:37:41.585Z[GMT]"` | FEEL `now()` yields a zoned date-time with a zone id — not plain ISO 8601; Python's `fromisoformat` cannot parse it. Left as is until the first consumer (Phase 5), which will normalise it |
+| D3-11 | `slaDeadline` **closed in process v7 (Phase 5.3):** the output mapping strips the engine's zone id, so the variable is plain ISO 8601 with a zone (`2026-09-24T20:37:41.585Z`; `+hh:mm` offsets pass through). v4–v6 stored the raw serialization `"…Z[GMT]"` | FEEL `now()` yields a zoned date-time with a zone id — not plain ISO 8601; Python's `fromisoformat` cannot parse it. Became mandatory once v6 published the value in `support.ticket.resolved`; the e2e `--check` now enforces the format |
