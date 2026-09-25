@@ -11,6 +11,11 @@
 #   send-tickets.sh                     unattended run: publish, complete user tasks, verify
 #   send-tickets.sh --manual-user-tasks publish, print user task keys for Tasklist, exit
 #   send-tickets.sh --check             verify the most recent run (reads .last-run)
+#   send-tickets.sh --probe-unknown-booking
+#                                       negative probe (never part of the default run): one
+#                                       cancel ticket with an unknown bookingRef → BPMN error
+#                                       BOOKING_NOT_FOUND has no boundary event yet → incident
+#                                       on cancel-refund (Phase 6 scenario B input)
 #
 # Env contract (same as workers/llm-classifier): CAMUNDA_BASE_URL, CAMUNDA_USER, CAMUNDA_PASSWORD.
 # --check additionally needs STAND_HOST (SSH alias) for the classification_review query.
@@ -182,20 +187,38 @@ complete_user_tasks() {
   done
 }
 
+# Lists every open user task of the run, not only the expected ones: borderline
+# confidence can send any ticket to review (T-1006 does on most runs). Each instance is
+# polled until it waits at a user task or finishes; the loop is capped at TIMEOUT_SECONDS
+# per ticket, and an instance stuck elsewhere (e.g. an incident on a service task) is
+# printed as "no user task, state=ACTIVE" instead of being waited on. Tickets with an
+# expected user task must reach one — anything else is an error.
 print_user_tasks() {
-  local id t key task expected_element
+  local id t key task expected_element deadline state listed=0 fails=0
   for id in $(ticket_ids); do
     t=$(ticket "$id")
     expected_element=$(echo "$t" | jq -r '.expected.userTask.elementId // empty')
-    [ -z "$expected_element" ] && continue
-    key=$(wait_for_instance "$id")
-    if ! task=$(poll open_user_task "$key"); then
-      echo "error: $id reached no user task within ${TIMEOUT_SECONDS}s" >&2
-      return 1
+    if ! key=$(wait_for_instance "$id"); then fails=$((fails+1)); continue; fi
+    deadline=$((SECONDS + TIMEOUT_SECONDS)); task=""; state=""
+    while [ "$SECONDS" -lt "$deadline" ]; do
+      task=$(open_user_task "$key")
+      [ -n "$task" ] && break
+      state=$(instance_state_if_done "$key")
+      [ -n "$state" ] && break
+      sleep "$POLL_INTERVAL"
+    done
+    if [ -n "$task" ]; then
+      echo "open user task: ${task##* }  ticketId=$id  userTaskKey=${task%% *}"
+      listed=$((listed+1))
+    elif [ -n "$expected_element" ]; then
+      echo "error: $id reached no user task within ${TIMEOUT_SECONDS}s (expected $expected_element)" >&2
+      fails=$((fails+1))
+    else
+      echo "$id: no user task, state=${state:-ACTIVE}"
     fi
-    echo "$id waits at ${task##* } — userTaskKey ${task%% *}"
   done
-  echo "complete both in Tasklist, then run: send-tickets.sh --check"
+  echo "$listed open user task(s) — complete them in Tasklist, then run: send-tickets.sh --check"
+  [ "$fails" -eq 0 ] || exit 1
 }
 
 variable_value() { # INSTANCE_KEY NAME — unwraps JSON-encoded string values
@@ -219,6 +242,17 @@ generation_vars() {
     | jq -c '[.items[] | {(.name): (.value | try fromjson catch .)}] | add // {}'
 }
 
+# cyrillic_ratio — stdin text → share of Cyrillic letters among all letters (0..1, 2 dp).
+# jq instead of awk: macOS awk fails on multibyte input. Letters = ASCII, Latin-1/Extended
+# (U+00C0–U+024F) and the Cyrillic block (U+0400–U+04FF).
+cyrillic_ratio() {
+  jq -Rrs '[explode[] | select((. >= 65 and . <= 90) or (. >= 97 and . <= 122)
+                              or (. >= 192 and . <= 591) or (. >= 1024 and . <= 1279))]
+           | if length == 0 then 0
+             else (map(select(. >= 1024 and . <= 1279)) | length) / length end
+           | . * 100 | round / 100'
+}
+
 # generation_check TICKET_JSON ROUTING_JSON GENERATION_JSON — prints a failure reason or
 # nothing (5.4, D5-8/D5-9): customerMessage present in the ticket language for every
 # ticket; the answered branch carries answerText + answerKbIds; the refund message
@@ -231,6 +265,13 @@ generation_check() {
   msg_lang=$(echo "$gen" | jq -r '.messageLanguage // empty')
   if [ -z "$msg" ]; then echo "customerMessage missing or empty"; return; fi
   if [ "$msg_lang" != "$lang" ]; then echo "messageLanguage='$msg_lang', expected '$lang'"; return; fi
+  # cheap script sanity check: share of Cyrillic among letters — ru > 0.5, en < 0.1
+  local ratio
+  ratio=$(printf '%s' "$msg" | cyrillic_ratio)
+  case "$lang" in
+    ru) awk -v r="$ratio" 'BEGIN { exit !(r > 0.5) }' || { echo "Cyrillic ratio $ratio, expected > 0.5 for ru"; return; } ;;
+    en) awk -v r="$ratio" 'BEGIN { exit !(r < 0.1) }' || { echo "Cyrillic ratio $ratio, expected < 0.1 for en"; return; } ;;
+  esac
   if [ "$exp_res" = "answered" ]; then
     if [ -z "$(echo "$gen" | jq -r '.answerText // empty')" ]; then echo "answerText missing or empty"; return; fi
     if [ "$(echo "$gen" | jq -r '.answerKbIds // [] | length')" = "0" ]; then echo "answerKbIds empty"; return; fi
@@ -396,6 +437,33 @@ check_classification_review() {
   echo "PASS review: $REVIEW_TICKET classification_review row $row"
 }
 
+# open_incident INSTANCE_KEY -> "elementId errorType: errorMessage" of the first active incident
+open_incident() {
+  api POST /incidents/search "$(jq -cn --arg k "$1" '{filter: {processInstanceKey: $k, state: "ACTIVE"}}')" \
+    | jq -r '.items[0] | select(. != null) | "\(.elementId) \(.errorType): \(.errorMessage)"'
+}
+
+# Negative probe: produces one cancel_refund ticket whose bookingRef the mock does not
+# know, then waits for the incident and prints it. Its own runId; verify() never sees it.
+probe_unknown_booking() {
+  RUN_ID="probe-$(date -u +%Y%m%dT%H%M%SZ)"
+  local id="T-9001" payload key incident
+  payload=$(jq -cn --arg id "$id" --arg run "$RUN_ID" '{
+    ticketId: $id, customerId: "C-9001", customerTier: "standard",
+    subject: "Please cancel and refund", body: "I cannot travel, please cancel my booking and refund it.",
+    language: "en", bookingRef: "BK-UNKNOWN", bookingValue: 100, currency: "EUR",
+    customerCurrency: "EUR", runId: $run, messageId: ($id + "-" + $run)}')
+  produce_event "$id" "$payload"
+  echo "produced $id (bookingRef BK-UNKNOWN, runId $RUN_ID) — expecting an incident on cancel-refund"
+  key=$(wait_for_instance "$id") || exit 1
+  if ! incident=$(poll open_incident "$key"); then
+    echo "FAIL probe: no incident on instance $key within ${TIMEOUT_SECONDS}s (state $(api GET "/process-instances/$key" | jq -r .state))"
+    exit 1
+  fi
+  echo "PASS probe: instance $key has an incident — $incident"
+  echo "resolve or cancel it in Operate (instance key $key); it is not part of any e2e run"
+}
+
 MODE=${1:-default}
 case "$MODE" in
   default)
@@ -407,6 +475,9 @@ case "$MODE" in
     publish_tickets
     print_user_tasks
     ;;
+  --probe-unknown-booking)
+    probe_unknown_booking
+    ;;
   --check)
     if [ ! -f "$LAST_RUN_FILE" ]; then
       echo "error: $LAST_RUN_FILE not found — publish a run first" >&2; exit 1
@@ -417,6 +488,6 @@ case "$MODE" in
     check_classification_review
     ;;
   *)
-    echo "usage: $0 [--manual-user-tasks | --check]" >&2; exit 2
+    echo "usage: $0 [--manual-user-tasks | --check | --probe-unknown-booking]" >&2; exit 2
     ;;
 esac

@@ -1,7 +1,7 @@
 {
   "components": [
     {
-      "text": "### Ticket {{ticketId}}\n\n**Subject:** {{subject}}\n\n{{body}}\n\n---\n**LLM classification** · source: `{{classifierSource}}` · confidence: **{{confidence}}**\n\nintent: `{{intent}}` · sentiment: `{{sentiment}}` · language: `{{detectedLanguage}}`\n\n_{{rationale}}_",
+      "text": "### Ticket {{ticketId}}\n\n**Subject:** {{subject}}\n\n{{body}}\n\n---\n**Classifier** · source: `{{classifierSource}}` · confidence: **{{confidence}}** · language: {{detectedLanguage}}\n\n_{{rationale}}_\n\nThe intent and sentiment below are pre-filled with the classifier's values — correct them if needed.",
       "type": "text",
       "layout": {
         "row": "Row_1hnrhlg",

@@ -178,6 +178,14 @@ docker compose up -d --build --remove-orphans          # without --remove-orphan
                                                        # worker-stub keeps polling the same job types
 ```
 
+## Before publishing
+
+`make check-public` greps the repository for strings that must not appear in a public
+repository and exits 0 only when nothing matches. The pattern comes from the owner's shell
+environment (`PUBLIC_CHECK_PATTERN`, like `STAND_HOST`) and is never tracked. Run it
+before every commit of docs or screenshots; the e2e README and the backlog reference it
+as the closing step.
+
 ## Limitations (accepted for this stand)
 
 - **Kafka runs without authentication or TLS** (PLAINTEXT on both listeners). Acceptable
@@ -298,6 +306,26 @@ Symptom → cause → fix entries are added here the moment something breaks dur
   `intent`/`sentiment`/`escalate`/`reviewedBy` on `review-classification`, together with
   the D5-4 re-routing (`docs/design/process-v1.md` §11). Rule of thumb: a task with any
   output mapping must map out *every* completion variable it wants in the process scope.
+- **Symptom:** an instance loops on a service task with no incident — Operate shows it
+  green with the token on `cancel-refund` (or `change-booking`), and `worker-booking`
+  logs the same pair every 60 s (the job timeout): `msg=error … errorCode=BOOKING_NOT_FOUND`
+  followed by `msg="job lifecycle call failed" error="POST /v2/jobs/<key>/errors: HTTP 404 …
+  No static resource v2/jobs/<key>/errors"`. Seen on the first 5.5 run (`20260925T141107Z`,
+  T-1008 with an unknown `bookingRef`).
+  **Cause:** two defects. The throw-error call used `/v2/jobs/{key}/errors`; the 8.9
+  Orchestration Cluster REST API path is `/v2/jobs/{jobKey}/error` (singular; failure and
+  completion are `/failure` and `/completion`). And the worker only logged a failed
+  lifecycle call, so the job timed out, was re-activated and failed identically forever —
+  nothing ever reached the engine.
+  **Fix:** `workers/booking/camunda.go` uses the singular path, and `report()` in
+  `main.go` turns a failed error/completion call into `POST /failure` with `retries: 0`
+  and the original message, so the engine raises an incident that names the problem
+  instead of a silent loop. With the fix an unknown `bookingRef` now surfaces as an
+  **incident on `cancel-refund`** — `BOOKING_NOT_FOUND` is thrown correctly, but the model
+  has no error boundary event to catch it yet. That is the input to the Phase 6
+  error-boundary scenario B; reproduce with `tests/e2e/send-tickets.sh --probe-unknown-booking`.
+  Screenshots: `../assets/phase-5/silent-loop-before-fix.png` (before),
+  `../assets/phase-5/incident-booking-not-found.png` (after, probe run 2026-09-25).
 - **Symptom:** the API still answers 200 without credentials after enabling protection.
   **Cause:** the config was edited on the workstation but not synced to the VM; Compose
   restarted the old files.

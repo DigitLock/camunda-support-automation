@@ -84,8 +84,11 @@ func (c *camundaClient) failJob(ctx context.Context, jobKey string, retries int,
 	}, nil)
 }
 
+// throwJobError raises a BPMN error. Path is singular: POST /v2/jobs/{jobKey}/error
+// (8.9 API reference, "Throw error for job"); the plural form is a 404 that the
+// worker used to swallow — see docs/ops/install.md.
 func (c *camundaClient) throwJobError(ctx context.Context, jobKey, errorCode, errorMessage string) error {
-	return c.do(ctx, http.MethodPost, "/v2/jobs/"+jobKey+"/errors", map[string]any{
+	return c.do(ctx, http.MethodPost, "/v2/jobs/"+jobKey+"/error", map[string]any{
 		"errorCode":    errorCode,
 		"errorMessage": errorMessage,
 	}, nil)

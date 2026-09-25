@@ -310,6 +310,10 @@ Accepted live in run `20260925T121224Z`.
 
 *Operate — T-1002: `refundAmountCustomer` repeated verbatim inside `customerMessage` (grounding check D5-9).*
 
+![Tasklist: review-classification form v2](../assets/phase-5/tasklist-review-form-v2.png)
+
+*Tasklist — the fixed review form (5.5, redeployed on v8, accepted in run `20260925T142455Z`): the "LLM classification" block shows source, confidence, language and rationale only, so a corrected select no longer overwrites the LLM snapshot on screen.*
+
 ## 12. Decisions
 
 | # | Decision | Rationale |

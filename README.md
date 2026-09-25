@@ -1,7 +1,10 @@
 # Camunda Support Automation
 
-Status: Phase 4 done — Integrations (Kafka in/out via Connectors, FX via REST connectors,
-Go booking worker, workers as containers); process v6, DMN v3, e2e 7/7 over Kafka.
+Status: Phase 5 done — LLM classifier with guardrails (Claude Haiku classify, Sonnet
+answer/notify, two-layer schema validation, number grounding, keyword/template fallback,
+review loop with recorded corrections, PostgreSQL audit); process v8, DMN v3, e2e 8/8 over
+Kafka incl. the Russian refund ticket, negative probe raises an incident (run 20260925T142455Z).
+Acceptance against the plan: [docs/backlog.md](docs/backlog.md#phase-5-acceptance-against-the-plan).
 
 Phase 2 — process `support-request-v1` at version 3 (v1 happy path; v2 misrouted
 at a single gateway; v3 with a separate needs-review gateway, see
@@ -72,7 +75,7 @@ flowchart LR
     wbooking -- "REST v2: long-poll jobs" --> camunda
     wbooking -- "HTTP/JSON" --> bookingapi
     wclassifier -- "REST v2: long-poll jobs" --> camunda
-    wclassifier -. "Phase 5.2" .-> claude
+    wclassifier -- "classify / answer / notify" --> claude
     wclassifier -- "audit" --> pg
     camunda --> es
     connectors --> camunda
@@ -107,8 +110,8 @@ docs/               Design, ops guides, runbooks, analytics, ADRs
 | 2 | Process v1 happy path | done |
 | 3 | DMN + FEEL | done |
 | 4 | Integrations | done |
-| 5 | LLM classifier with guardrails | planned |
-| 6 | Operations | planned |
+| 5 | LLM classifier with guardrails | done ([acceptance](docs/backlog.md#phase-5-acceptance-against-the-plan)) |
+| 6 | Operations | next |
 | 7 | Docs & analytics | planned |
 | 8 | Publication | planned |
 
@@ -119,6 +122,7 @@ One line per day: date — phase — done / broken / next.
 - 2026-09-21 — Phase 0 done, Phase 1 nearly done — VM + Docker; core stack (Camunda 8.9.21 / Connectors 8.9.12 / ES 8.19.11) up in under a minute; protected API with Basic auth and authorizations; smoke test via REST + Tasklist + Operate; install guide / ES yellow on single node (replicas 0); sysctl override lowered the Debian 13 default (removed); VM time zone (UTC); config edited but not synced before restart (make deploy) / install-from-scratch run against docs/ops/install.md, then Phase 2
 - 2026-09-22 — Phase 1 done — install-from-scratch run against docs/ops/install.md passed in <N> min; one doc gap (ssh config block was not a command) fixed / stand broke overnight before the run was finished (restarted from the clean snapshot) / Phase 2: process v1 happy path
 - 2026-09-24 — Phase 4 done — Kafka in/out via Connectors (messageId dedup, TTL PT1H), FX conversions via REST connectors, Go booking worker, workers as containers; process v6, DMN v3; e2e 7/7 over Kafka incl. dedup probe / v5 shipped without output mappings on branch tasks — convert-refund incident, fixed in v6 (D4-6) / Phase 5: LLM classifier
+- 2026-09-25 — Phase 5 done — Haiku classify with guardrails (35/35 on the 40-ticket set, threshold 0.8), review loop re-routes and records corrections (v7), Sonnet answer/notify grounded in the KB with number grounding (v8), audit in PostgreSQL; e2e 7/7 → 8/8 with the Russian refund ticket / D4-6 hit twice more (user task v7, answer task v8) — rule of thumb in process-v1.md §11; first 5.5 run: T-1008 looped silently on cancel-refund — the Go worker threw BPMN errors to `/jobs/{key}/errors` (404, path is singular) and swallowed the failure; fixed, a failed lifecycle call now raises an incident (install.md) / Phase 6: operations (incidents, migration, backup, upgrade, monitoring) — scenario B input ready (`--probe-unknown-booking`)
 
 ## Run the e2e
 
@@ -129,11 +133,20 @@ export CAMUNDA_USER=admin
 export CAMUNDA_PASSWORD=...            # from infra/.env on the stand
 export STAND_IP=<stand address>        # Kafka EXTERNAL listener, port 9092
 
-tests/e2e/send-tickets.sh              # 7 tickets + dedup probe, verify via REST
+tests/e2e/send-tickets.sh              # 8 tickets + dedup probe, verify via REST
 tests/e2e/send-tickets.sh --check      # re-verify + consume support.ticket.resolved
+make check-public                      # exit 0 = clean; pattern from PUBLIC_CHECK_PATTERN (owner's shell)
 ```
 
 Details and the manual (Tasklist) mode: `tests/e2e/README.md`.
+
+## Docs
+
+- Design: [process](docs/design/process-v1.md), [routing (DMN)](docs/design/routing-v1.md),
+  [integrations](docs/design/integrations-v1.md), [LLM classifier](docs/design/llm-classifier-v1.md),
+  [LLM guardrails overview](docs/design/llm-guardrails.md), [domain model](docs/design/domain-model.md)
+- Operations: [install](docs/ops/install.md); decisions: [ADRs](docs/adr/)
+- [Traceability](docs/traceability.md) (capability → evidence), [backlog and phase status](docs/backlog.md)
 
 ## License note
 

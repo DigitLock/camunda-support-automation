@@ -14,8 +14,9 @@ and `booking.cancel` job types from Phase 4 on. No persistence: state resets on 
 
 Booking fields: `id`, `customerId`, `value`, `currency`, `bookedAt`, `travelDate`, `status`.
 
-Seed data: `BK-77`, `BK-81`, `BK-90` (EUR, aligned with `tests/e2e/tickets.json`) and
-`BK-1001` (USD 1200, used by the FX conversion path and the smoke test).
+Seed data: `BK-77`, `BK-81`, `BK-90` (EUR, aligned with `tests/e2e/tickets.json`; `BK-90`
+is also the ref of the Russian refund ticket T-1008) and `BK-1001` (USD 1050, used by the
+FX conversion path). Any other id is a 404 → `BOOKING_NOT_FOUND` in the worker.
 
 ## Deterministic failures (by booking id)
 

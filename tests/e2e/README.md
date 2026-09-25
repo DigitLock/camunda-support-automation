@@ -1,8 +1,9 @@
 # E2E test: support-request-v1
 
-`send-tickets.sh` drives the five §8 tickets from `docs/design/process-v1.md` through the
-deployed process over the REST API v2 (bash + curl + jq). Ticket payloads and expectations live
-in `tickets.json`; the script contains no data.
+`send-tickets.sh` drives the eight tickets of `tickets.json` (the §8 set of
+`docs/design/process-v1.md` plus T-1006/T-1007 from Phases 3–4 and the Russian refund
+ticket T-1008 from Phase 5.5) through the deployed process (bash + curl + jq). Ticket
+payloads and expectations live in `tickets.json`; the script contains no data.
 
 Prerequisites: core stack up, `support-request-v1` (v5+) deployed, worker containers
 running (compose profile `workers`, see `docs/ops/install.md`). Since process v5 the
@@ -12,7 +13,10 @@ connector is the only process entry — and verification still runs over the RES
 ```bash
 # verification (same as the workers); since 5.4 --check also asserts the LLM message
 # variables (customerMessage in the ticket language, answerText/answerKbIds on T-1003,
-# the refund amount inside T-1002's message)
+# the refund amount inside the refund messages of T-1002/T-1008, and a Cyrillic-ratio
+# sanity check: > 0.5 of the letters for ru, < 0.1 for en)
+# before publishing anything from this repo: `make check-public` (exit 0 = clean; the
+# pattern comes from the owner's shell environment, PUBLIC_CHECK_PATTERN)
 export CAMUNDA_BASE_URL=http://localhost:8080   # or the stand's address
 export CAMUNDA_USER=admin
 export CAMUNDA_PASSWORD=...                     # from infra/.env on the stand
@@ -30,11 +34,18 @@ export STAND_HOST=camunda-stand                 # --check queries classification
 # verify paths + resolution + notificationTemplate, exit 0/1
 ./send-tickets.sh
 
-# acceptance run: --manual-user-tasks only publishes, waits for tickets 4 and 5 to reach
-# their user task, prints the task keys and exits — it verifies nothing. Complete both
-# tasks in Tasklist, then run the verification as a separate step:
+# acceptance run: --manual-user-tasks only publishes, then lists EVERY open user task of
+# the run (element id, ticketId, userTaskKey) — the expected ones (T-1004, T-1005) plus any
+# borderline ticket the classifier sent to review (T-1006 on most runs). Instances that
+# finish without a user task or get stuck (incident) are printed as "no user task,
+# state=…" after at most TIMEOUT_SECONDS. It verifies nothing; complete the tasks in
+# Tasklist, then run the verification as a separate step:
 ./send-tickets.sh --manual-user-tasks
 ./send-tickets.sh --check
+
+# negative probe (never part of the default run): one cancel ticket with an unknown
+# bookingRef → BOOKING_NOT_FOUND → incident on cancel-refund (no boundary event yet, Phase 6)
+./send-tickets.sh --probe-unknown-booking
 ```
 
 Each run gets a `RUN_ID` (UTC timestamp). The event payload carries

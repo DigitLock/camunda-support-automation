@@ -268,5 +268,43 @@
         ]
       }
     }
+  },
+  {
+    "ticketId": "T-1008",
+    "customerId": "C-1008",
+    "customerTier": "standard",
+    "subject": "Отмена тура и возврат денег",
+    "body": "Поездка не состоится, прошу отменить бронирование и вернуть оплату.",
+    "language": "ru",
+    "bookingRef": "BK-90",
+    "bookingValue": 450.0,
+    "currency": "EUR",
+    "customerCurrency": "TRY",
+    "expected": {
+      "path": [
+        "cancel-refund",
+        "classify-ticket",
+        "convert-booking-value",
+        "convert-refund",
+        "end-resolved",
+        "gw-has-booking-value",
+        "gw-intent",
+        "gw-needs-review",
+        "notify-customer",
+        "publish-resolved",
+        "route-ticket",
+        "start-ticket-created"
+      ],
+      "resolution": "refund_issued",
+      "userTask": null,
+      "routing": {
+        "team": "refunds",
+        "priority": "normal",
+        "slaHours": 24,
+        "requiredChecks": [
+          "refund-policy"
+        ]
+      }
+    }
   }
 ]

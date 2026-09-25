@@ -71,7 +71,7 @@ func (w *worker) handle(ctx context.Context, job activatedJob) {
 	log = log.With("bookingRef", ref)
 	if ref == "" {
 		log.Info("error", "errorCode", errBookingNotFound, "reason", "bookingRef missing or null")
-		w.report(ctx, log, w.camunda.throwJobError(ctx, job.JobKey, errBookingNotFound, "bookingRef is missing or null"))
+		w.report(ctx, log, job, "error", w.camunda.throwJobError(ctx, job.JobKey, errBookingNotFound, "bookingRef is missing or null"))
 		return
 	}
 
@@ -88,15 +88,15 @@ func (w *worker) handle(ctx context.Context, job activatedJob) {
 	switch {
 	case err != nil: // network error or client timeout
 		log.Info("failed", "retriesLeft", job.Retries-1, "reason", err.Error())
-		w.report(ctx, log, w.camunda.failJob(ctx, job.JobKey, job.Retries-1, "booking-api call failed: "+err.Error()))
+		w.report(ctx, log, job, "failure", w.camunda.failJob(ctx, job.JobKey, job.Retries-1, "booking-api call failed: "+err.Error()))
 	case resp.StatusCode == http.StatusNotFound:
 		drain(resp)
 		log.Info("error", "errorCode", errBookingNotFound)
-		w.report(ctx, log, w.camunda.throwJobError(ctx, job.JobKey, errBookingNotFound, "booking not found: "+ref))
+		w.report(ctx, log, job, "error", w.camunda.throwJobError(ctx, job.JobKey, errBookingNotFound, "booking not found: "+ref))
 	case resp.StatusCode >= 500:
 		drain(resp)
 		log.Info("failed", "retriesLeft", job.Retries-1, "reason", fmt.Sprintf("booking-api HTTP %d", resp.StatusCode))
-		w.report(ctx, log, w.camunda.failJob(ctx, job.JobKey, job.Retries-1, fmt.Sprintf("booking-api returned HTTP %d", resp.StatusCode)))
+		w.report(ctx, log, job, "failure", w.camunda.failJob(ctx, job.JobKey, job.Retries-1, fmt.Sprintf("booking-api returned HTTP %d", resp.StatusCode)))
 	default:
 		var booking struct {
 			Status   string  `json:"status"`
@@ -114,7 +114,7 @@ func (w *worker) handle(ctx context.Context, job activatedJob) {
 			variables["refundCurrency"] = booking.Currency
 		}
 		log.Info("completed", "bookingStatus", booking.Status)
-		w.report(ctx, log, w.camunda.completeJob(ctx, job.JobKey, variables))
+		w.report(ctx, log, job, "completion", w.camunda.completeJob(ctx, job.JobKey, variables))
 	}
 }
 
@@ -123,10 +123,22 @@ func drain(resp *http.Response) {
 	resp.Body.Close()
 }
 
-// report logs job-lifecycle API errors; the job then falls back to its timeout.
-func (w *worker) report(ctx context.Context, log *slog.Logger, err error) {
-	if err != nil && ctx.Err() == nil {
-		log.Error("job lifecycle call failed", "error", err.Error())
+// report handles a failed job-lifecycle call. Logging alone is not enough: the job would
+// time out, be re-activated and hit the same failure forever with a green instance in
+// Operate (seen live with the wrong error path — docs/ops/install.md). So a failed
+// error/completion call is turned into a failure with retries=0, which raises an
+// incident that names the original problem. A failed failure call can only be logged.
+func (w *worker) report(ctx context.Context, log *slog.Logger, job activatedJob, call string, err error) {
+	if err == nil || ctx.Err() != nil {
+		return
+	}
+	log.Error("job lifecycle call failed", "call", call, "error", err.Error())
+	if call == "failure" {
+		return
+	}
+	msg := fmt.Sprintf("job %s call failed, raising incident instead: %s", call, err.Error())
+	if ferr := w.camunda.failJob(ctx, job.JobKey, 0, msg); ferr != nil {
+		log.Error("job lifecycle call failed", "call", "failure (fallback)", "error", ferr.Error())
 	}
 }
 
