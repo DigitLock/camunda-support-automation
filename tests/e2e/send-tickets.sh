@@ -15,7 +15,19 @@
 #                                       negative probe (never part of the default run): one
 #                                       cancel ticket with an unknown bookingRef → BPMN error
 #                                       BOOKING_NOT_FOUND has no boundary event yet → incident
-#                                       on cancel-refund (Phase 6 scenario B input)
+#                                       on cancel-refund (Phase 6.2 scenario B input)
+#   send-tickets.sh --probe-booking-5xx  Phase 6.1 A1: one cancel ticket on BK-FAIL-500 → the
+#                                       worker fails the job with backoff → incident on
+#                                       cancel-refund after the retries. Prints the instance key
+#                                       and exits (no waiting for the incident).
+#   send-tickets.sh --probe-outage       Phase 6.1 A2: switch the booking-api fault ON first
+#                                       (make fault-on), then this produces one cancel (BK-81)
+#                                       and one change (BK-77) ticket; prints both keys, exits.
+#   send-tickets.sh --probe-classify     Phase 6.1 A3b: one plain question ticket (no booking);
+#                                       with postgres stopped the audit write fails →
+#                                       incident on classify-ticket. Prints the key, exits.
+#   send-tickets.sh --incidents          lists ACTIVE incidents, then CREATED jobs older than
+#                                       60 s that no worker ever activated (A3a signal).
 #
 # Env contract (same as workers/llm-classifier): CAMUNDA_BASE_URL, CAMUNDA_USER, CAMUNDA_PASSWORD.
 # --check additionally needs STAND_HOST (SSH alias) for the classification_review query.
@@ -464,6 +476,85 @@ probe_unknown_booking() {
   echo "resolve or cancel it in Operate (instance key $key); it is not part of any e2e run"
 }
 
+# ---- Phase 6.1 probes: produce one or more tickets under their own probe run id, print
+# "ticketId processInstanceKey" per ticket and exit. The only wait is the instance-key
+# lookup (Kafka → connector → engine → secondary storage, a few seconds); the incident
+# itself is left to the operator: --incidents, Grafana or Operate. Never part of verify().
+
+# probe_payload ID SUBJECT BODY BOOKING_REF|null VALUE|null
+probe_payload() {
+  local ref_json=null
+  [ "$4" = null ] || ref_json=$(printf '"%s"' "$4")
+  jq -cn --arg id "$1" --arg run "$RUN_ID" --arg subject "$2" --arg body "$3" \
+    --argjson ref "$ref_json" --argjson value "$5" '{
+    ticketId: $id, customerId: ("C-" + ($id | ltrimstr("T-"))), customerTier: "standard",
+    subject: $subject, body: $body, language: "en",
+    bookingRef: $ref, bookingValue: $value, currency: (if $value == null then null else "EUR" end),
+    customerCurrency: "EUR", runId: $run, messageId: ($id + "-" + $run)}'
+}
+
+# probe_ticket ID SUBJECT BODY BOOKING_REF|null VALUE|null EXPECTATION-TEXT
+probe_ticket() {
+  local id=$1 key
+  produce_event "$id" "$(probe_payload "$id" "$2" "$3" "$4" "$5")"
+  echo "produced $id (bookingRef ${4}, runId $RUN_ID) — $6"
+  key=$(wait_for_instance "$id") || exit 1
+  echo "$id $key"
+}
+
+probe_run_id() { RUN_ID="probe-$(date -u +%Y%m%dT%H%M%SZ)"; }
+
+probe_booking_5xx() {
+  probe_run_id
+  probe_ticket T-9002 "Cancel my booking and refund" \
+    "I cannot travel anymore. Please cancel my booking and refund the full amount to my card." \
+    BK-FAIL-500 100 "expecting booking-api 500 → retries with backoff → incident on cancel-refund"
+  echo "watch: $0 --incidents   (or Operate; the incident appears after retries × RETRY_BACKOFF)"
+}
+
+probe_outage() {
+  echo "note: the booking-api fault must already be ON (make fault-on / docker compose exec booking-api /app -fault on);"
+  echo "      this script cannot reach booking-api from outside the stand, so it does not check."
+  probe_run_id
+  probe_ticket T-9003 "Please cancel and refund" \
+    "I cannot travel anymore, please cancel my booking and refund it." \
+    BK-81 320.5 "expecting the injected outage on cancel-refund"
+  probe_ticket T-9004 "Change my travel date" \
+    "Please move my trip to a later date next month, same booking." \
+    BK-77 540 "expecting the injected outage on change-booking"
+  echo "switch the fault OFF within retries × RETRY_BACKOFF to see the retry succeed, or later to resolve the incidents in Operate"
+}
+
+probe_classify() {
+  probe_run_id
+  probe_ticket T-9005 "Question about luggage allowance" \
+    "How much luggage can I bring on my flight, and is a carry-on bag included?" \
+    null null "with postgres stopped: audit write fails → incident on classify-ticket (D5-3); with postgres up: a normal question ticket"
+}
+
+# --incidents: two sections over the 8.9 REST API v2. Fields verified against the SDK's
+# generated models (IncidentResult, JobSearchResult): incident state ACTIVE; job state
+# CREATED with deadline == null means the job was never activated by a worker — that is
+# what an absent worker looks like (Phase 6.1 scenario A3a), a green instance in Operate.
+# seconds since an ISO 8601 timestamp with an optional fraction (jq filter text)
+AGE_SECONDS_JQ='(now - (. | sub("\\.[0-9]+"; "") | sub("\\+00:00$"; "Z") | fromdateiso8601)) | floor'
+
+list_incidents() {
+  echo "ACTIVE incidents (incidentKey processInstanceKey elementId errorType creationTime errorMessage):"
+  api POST /incidents/search '{"filter": {"state": "ACTIVE"}, "sort": [{"field": "creationTime", "order": "DESC"}], "page": {"limit": 50}}' \
+    | jq -r '.items[] | [.incidentKey, .processInstanceKey, .elementId, .errorType, .creationTime, (.errorMessage | gsub("\n"; " "))] | @tsv' \
+    | sed 's/^/  /'
+  echo
+  echo "CREATED jobs older than 60 s never activated (jobKey processInstanceKey elementId type ageSeconds):"
+  api POST /jobs/search '{"filter": {"state": "CREATED"}, "page": {"limit": 100}}' \
+    | jq -r --argjson min 60 '.items[]
+        | select(.deadline == null and .creationTime != null)
+        | . + {age: (.creationTime | '"$AGE_SECONDS_JQ"')}
+        | select(.age > $min)
+        | [.jobKey, .processInstanceKey, .elementId, .type, .age] | @tsv' \
+    | sed 's/^/  /'
+}
+
 MODE=${1:-default}
 case "$MODE" in
   default)
@@ -478,6 +569,18 @@ case "$MODE" in
   --probe-unknown-booking)
     probe_unknown_booking
     ;;
+  --probe-booking-5xx)
+    probe_booking_5xx
+    ;;
+  --probe-outage)
+    probe_outage
+    ;;
+  --probe-classify)
+    probe_classify
+    ;;
+  --incidents)
+    list_incidents
+    ;;
   --check)
     if [ ! -f "$LAST_RUN_FILE" ]; then
       echo "error: $LAST_RUN_FILE not found — publish a run first" >&2; exit 1
@@ -488,6 +591,6 @@ case "$MODE" in
     check_classification_review
     ;;
   *)
-    echo "usage: $0 [--manual-user-tasks | --check | --probe-unknown-booking]" >&2; exit 2
+    echo "usage: $0 [--manual-user-tasks | --check | --probe-unknown-booking | --probe-booking-5xx | --probe-outage | --probe-classify | --incidents]" >&2; exit 2
     ;;
 esac

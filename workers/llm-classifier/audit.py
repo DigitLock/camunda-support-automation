@@ -19,6 +19,9 @@ log = logging.getLogger("llm-classifier.audit")
 
 _CONNECT_RETRIES = 10
 _CONNECT_BACKOFF_SECONDS = 3
+# libpq connect_timeout (D5-12): a database that accepts TCP but never answers (paused
+# container, black-holed route) must fail the job, not hang until the job timeout.
+_CONNECT_TIMEOUT_SECONDS = 5
 
 
 class Audit:
@@ -30,7 +33,7 @@ class Audit:
         """Called at startup: PostgreSQL may still be warming up."""
         for attempt in range(1, _CONNECT_RETRIES + 1):
             try:
-                self._conn = psycopg.connect(self._url, autocommit=True)
+                self._conn = self._connect()
                 log.info("audit database connected")
                 return
             except psycopg.OperationalError as exc:
@@ -41,9 +44,14 @@ class Audit:
                 time.sleep(_CONNECT_BACKOFF_SECONDS)
         raise RuntimeError(f"audit database unreachable after {_CONNECT_RETRIES} attempts")
 
+    def _connect(self):
+        return psycopg.connect(
+            self._url, autocommit=True, connect_timeout=_CONNECT_TIMEOUT_SECONDS
+        )
+
     def _connection(self):
         if self._conn is None or self._conn.closed:
-            self._conn = psycopg.connect(self._url, autocommit=True)
+            self._conn = self._connect()
         return self._conn
 
     def write_llm(

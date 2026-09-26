@@ -111,7 +111,7 @@ docs/               Design, ops guides, runbooks, analytics, ADRs
 | 3 | DMN + FEEL | done |
 | 4 | Integrations | done |
 | 5 | LLM classifier with guardrails | done ([acceptance](docs/backlog.md#phase-5-acceptance-against-the-plan)) |
-| 6 | Operations | next |
+| 6 | Operations | in progress — [design and plan](docs/design/operations-v1.md) |
 | 7 | Docs & analytics | planned |
 | 8 | Publication | planned |
 
@@ -145,7 +145,7 @@ Details and the manual (Tasklist) mode: `tests/e2e/README.md`.
 - Design: [process](docs/design/process-v1.md), [routing (DMN)](docs/design/routing-v1.md),
   [integrations](docs/design/integrations-v1.md), [LLM classifier](docs/design/llm-classifier-v1.md),
   [LLM guardrails overview](docs/design/llm-guardrails.md), [domain model](docs/design/domain-model.md)
-- Operations: [install](docs/ops/install.md); decisions: [ADRs](docs/adr/)
+- Operations: [install](docs/ops/install.md), [Phase 6 design](docs/design/operations-v1.md); decisions: [ADRs](docs/adr/)
 - [Traceability](docs/traceability.md) (capability → evidence), [backlog and phase status](docs/backlog.md)
 
 ## License note

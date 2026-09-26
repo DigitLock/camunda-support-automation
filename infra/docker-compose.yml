@@ -234,6 +234,9 @@ services:
       CAMUNDA_USER: admin
       CAMUNDA_PASSWORD: ${CAMUNDA_ADMIN_PASSWORD:?set CAMUNDA_ADMIN_PASSWORD in infra/.env}
       BOOKING_API_URL: http://booking-api:8080
+      # ISO 8601 backoff between job retries after a booking-api 5xx/timeout/transport
+      # error (Phase 6.1 scenario A); 3 retries × PT10S ≈ incident after 20 s
+      RETRY_BACKOFF: ${BOOKING_RETRY_BACKOFF:-PT10S}
     mem_limit: 64m
     restart: unless-stopped
     stop_grace_period: 30s
@@ -289,11 +292,71 @@ services:
     networks:
       - camunda
 
+  # ---- monitoring profile: Prometheus + Grafana on the stand VM (ADR-008, design D6-1) ----
+
+  prometheus:
+    image: prom/prometheus:${PROMETHEUS_VERSION}
+    container_name: prometheus
+    profiles: ["monitoring"]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+    mem_limit: 512m
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    volumes:
+      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./config/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+    networks:
+      - camunda
+    depends_on:
+      orchestration:
+        condition: service_healthy
+
+  grafana: # the only monitoring port on the host; dashboard + datasource are provisioned from files
+    image: grafana/grafana:${GRAFANA_VERSION}
+    container_name: grafana
+    profiles: ["monitoring"]
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in infra/.env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    mem_limit: 512m
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    volumes:
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./config/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    networks:
+      - camunda
+    depends_on:
+      prometheus:
+        condition: service_healthy
+
 volumes:
   camunda:
   elastic:
   kafka-data:
   postgres-data:
+  prometheus-data:
+  grafana-data:
 
 networks:
   camunda:

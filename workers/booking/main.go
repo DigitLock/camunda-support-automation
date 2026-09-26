@@ -1,7 +1,8 @@
 // Booking worker: serves the booking.change and booking.cancel job types by calling the
 // mock Booking API. Error contract (D4-1, docs/design/integrations-v1.md): API 2xx →
 // complete with {bookingStatus}; 404 or missing bookingRef → BPMN error BOOKING_NOT_FOUND;
-// 5xx / client timeout → fail with retries-1.
+// 5xx / client timeout / transport error → fail with retries-1 and a retry backoff
+// (RETRY_BACKOFF, ISO 8601 duration, default PT10S — Phase 6.1 scenario A).
 package main
 
 import (
@@ -14,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -29,6 +31,7 @@ const (
 	drainTimeout       = 25 * time.Second // < compose stop_grace_period (30 s)
 	healthMaxPollAge   = 60 * time.Second
 	errBookingNotFound = "BOOKING_NOT_FOUND"
+	defaultBackoff     = "PT10S"
 )
 
 var lastPoll atomic.Int64 // unix seconds of the last successful activation call
@@ -56,10 +59,70 @@ func logLevel() slog.Level {
 }
 
 type worker struct {
-	camunda    *camundaClient
-	bookingURL string
-	api        *http.Client
-	inFlight   sync.WaitGroup
+	camunda      *camundaClient
+	bookingURL   string
+	api          *http.Client
+	retryBackoff time.Duration
+	inFlight     sync.WaitGroup
+}
+
+// parseISODuration accepts the PnDTnHnMnS subset of ISO 8601 durations (e.g. PT10S,
+// PT1M30S, P1D). Fractions are not supported; a negative or empty value is an error.
+func parseISODuration(v string) (time.Duration, error) {
+	if len(v) < 3 || v[0] != 'P' {
+		return 0, fmt.Errorf("%q is not an ISO 8601 duration (expected e.g. PT10S)", v)
+	}
+	var total time.Duration
+	inTime := false
+	num := ""
+	for _, r := range v[1:] {
+		switch {
+		case r >= '0' && r <= '9':
+			num += string(r)
+		case r == 'T':
+			inTime = true
+		default:
+			if num == "" {
+				return 0, fmt.Errorf("%q: missing number before %q", v, string(r))
+			}
+			n, _ := strconv.Atoi(num)
+			num = ""
+			switch {
+			case r == 'D' && !inTime:
+				total += time.Duration(n) * 24 * time.Hour
+			case r == 'H' && inTime:
+				total += time.Duration(n) * time.Hour
+			case r == 'M' && inTime:
+				total += time.Duration(n) * time.Minute
+			case r == 'S' && inTime:
+				total += time.Duration(n) * time.Second
+			default:
+				return 0, fmt.Errorf("%q: unsupported designator %q (use D, or T with H/M/S)", v, string(r))
+			}
+		}
+	}
+	if num != "" {
+		return 0, fmt.Errorf("%q: trailing number without designator", v)
+	}
+	return total, nil
+}
+
+// fail reports one failed attempt: retries-1, the configured backoff, an errorMessage
+// that names the call and the retries left (it is the incident text in Operate once
+// retries are exhausted), and one WARN log line with the fields an operator needs to
+// find the instance and the task (Phase 6.1 scenario A).
+func (w *worker) fail(ctx context.Context, log *slog.Logger, job activatedJob, ref, action, cause string, httpStatus int) {
+	left := job.Retries - 1
+	if left < 0 {
+		left = 0
+	}
+	call := fmt.Sprintf("POST /bookings/%s/%s", ref, action)
+	msg := fmt.Sprintf("booking-api %s on %s (retries left: %d)", cause, call, left)
+	log.Warn("failed",
+		"processInstanceKey", job.ProcessInstanceKey, "elementId", job.ElementID,
+		"httpStatus", httpStatus, "retriesLeft", left, "retryBackOff", w.retryBackoff.String(),
+		"reason", msg)
+	w.report(ctx, log, job, "failure", w.camunda.failJob(ctx, job.JobKey, left, w.retryBackoff, msg))
 }
 
 // handle processes one job and reports the outcome to Camunda.
@@ -86,17 +149,17 @@ func (w *worker) handle(ctx context.Context, job activatedJob) {
 	resp, err := w.api.Do(req)
 
 	switch {
-	case err != nil: // network error or client timeout
-		log.Info("failed", "retriesLeft", job.Retries-1, "reason", err.Error())
-		w.report(ctx, log, job, "failure", w.camunda.failJob(ctx, job.JobKey, job.Retries-1, "booking-api call failed: "+err.Error()))
+	case err != nil && apiCtx.Err() == context.DeadlineExceeded: // client timeout (apiTimeout)
+		w.fail(ctx, log, job, ref, action, fmt.Sprintf("timeout after %s", apiTimeout), 0)
+	case err != nil: // transport error (connection refused, DNS, reset)
+		w.fail(ctx, log, job, ref, action, "transport error: "+err.Error(), 0)
 	case resp.StatusCode == http.StatusNotFound:
 		drain(resp)
 		log.Info("error", "errorCode", errBookingNotFound)
 		w.report(ctx, log, job, "error", w.camunda.throwJobError(ctx, job.JobKey, errBookingNotFound, "booking not found: "+ref))
 	case resp.StatusCode >= 500:
 		drain(resp)
-		log.Info("failed", "retriesLeft", job.Retries-1, "reason", fmt.Sprintf("booking-api HTTP %d", resp.StatusCode))
-		w.report(ctx, log, job, "failure", w.camunda.failJob(ctx, job.JobKey, job.Retries-1, fmt.Sprintf("booking-api returned HTTP %d", resp.StatusCode)))
+		w.fail(ctx, log, job, ref, action, fmt.Sprintf("HTTP %d", resp.StatusCode), resp.StatusCode)
 	default:
 		var booking struct {
 			Status   string  `json:"status"`
@@ -137,7 +200,7 @@ func (w *worker) report(ctx context.Context, log *slog.Logger, job activatedJob,
 		return
 	}
 	msg := fmt.Sprintf("job %s call failed, raising incident instead: %s", call, err.Error())
-	if ferr := w.camunda.failJob(ctx, job.JobKey, 0, msg); ferr != nil {
+	if ferr := w.camunda.failJob(ctx, job.JobKey, 0, 0, msg); ferr != nil {
 		log.Error("job lifecycle call failed", "call", "failure (fallback)", "error", ferr.Error())
 	}
 }
@@ -187,6 +250,16 @@ func main() {
 
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel()})))
 
+	backoffSpec := os.Getenv("RETRY_BACKOFF")
+	if backoffSpec == "" {
+		backoffSpec = defaultBackoff
+	}
+	backoff, err := parseISODuration(backoffSpec)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: RETRY_BACKOFF %v\n", err)
+		os.Exit(1)
+	}
+
 	w := &worker{
 		camunda: &camundaClient{
 			base:     strings.TrimRight(requireEnv("CAMUNDA_BASE_URL"), "/"),
@@ -195,8 +268,9 @@ func main() {
 			// long poll runs up to requestTimeout server-side; leave headroom
 			http: &http.Client{Timeout: requestTimeout + 5*time.Second},
 		},
-		bookingURL: strings.TrimRight(requireEnv("BOOKING_API_URL"), "/"),
-		api:        &http.Client{Timeout: apiTimeout},
+		bookingURL:   strings.TrimRight(requireEnv("BOOKING_API_URL"), "/"),
+		api:          &http.Client{Timeout: apiTimeout},
+		retryBackoff: backoff,
 	}
 	lastPoll.Store(time.Now().Unix()) // grace until the first real poll
 
@@ -207,7 +281,7 @@ func main() {
 	for _, jobType := range []string{"booking.change", "booking.cancel"} {
 		go w.poll(ctx, jobType)
 	}
-	slog.Info("worker-booking polling", "types", "booking.change,booking.cancel")
+	slog.Info("worker-booking polling", "types", "booking.change,booking.cancel", "retryBackOff", backoff.String())
 
 	<-ctx.Done()
 	slog.Info("shutdown: activation stopped, waiting for in-flight jobs", "limit", drainTimeout.String())

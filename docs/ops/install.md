@@ -178,6 +178,35 @@ docker compose up -d --build --remove-orphans          # without --remove-orphan
                                                        # worker-stub keeps polling the same job types
 ```
 
+## Monitoring
+
+Phase 6 adds the `monitoring` compose profile (Prometheus + Grafana on the stand VM,
+ADR-008, `docs/design/operations-v1.md` §2). It is switched on permanently like the other
+two profiles — `COMPOSE_PROFILES=integrations,workers,monitoring` in `infra/.env` — and
+needs one new variable, `GRAFANA_ADMIN_PASSWORD` (Compose refuses to start Grafana without
+it). The orchestration config gains the Prometheus endpoint on the management port, so the
+first deploy restarts `orchestration`:
+
+```bash
+# on the VM, once: profile + Grafana password
+sed -i "s|^COMPOSE_PROFILES=.*|COMPOSE_PROFILES=integrations,workers,monitoring|" .env
+printf 'PROMETHEUS_VERSION=v3.15.0\nGRAFANA_VERSION=13.2.2\nGRAFANA_ADMIN_PASSWORD=%s\n' "$(openssl rand -base64 24)" >> .env
+# from the workstation
+make deploy
+# on the VM: targets up, rules loaded, dashboard provisioned
+tests/smoke/phase-6-monitoring.sh
+```
+
+What to look at:
+
+- `http://<vm-host>:3000` — Grafana, user `admin` / `GRAFANA_ADMIN_PASSWORD`; folder
+  "Camunda stand" holds the provisioned dashboard (read-only, `camunda-stand`).
+  **Alerting → Alert rules** lists the two Prometheus rules (`CamundaIncidentsPending`,
+  `OrchestrationTargetDown`) with their state.
+- Prometheus is not published. Query it through Grafana → Explore, or on the VM with
+  `docker compose exec prometheus wget -qO- 'http://localhost:9090/api/v1/query?query=sum(zeebe_pending_incidents_total)'`.
+- The scraped endpoint: `docker compose exec orchestration curl -sS http://localhost:9600/actuator/prometheus | grep zeebe_pending_incidents_total`.
+
 ## Before publishing
 
 `make check-public` greps the repository for strings that must not appear in a public
@@ -201,6 +230,12 @@ as the closing step.
   `priority = normal`) stays deterministic only while USD/EUR < 0.952 — comfortably within
   the historical range, but a fact to know when a distant-future run suddenly flips it to
   `high`.
+- **No Alertmanager, no notification channel.** Alerts are evaluated by Prometheus and
+  shown in Grafana (Alerting → Alert rules) and on the dashboard; nobody is paged. The
+  stand has no mail relay or chat webhook, and the rule itself is the deliverable (ADR-008).
+- **Backups stay on the VM's local disk** (Phase 6.4, ADR-008): they cover operator
+  mistakes and the restore rehearsal, not the loss of the VM. Copying `/var/backups/camunda`
+  off-host is an `rsync` line the backup runbook mentions and does not automate.
 - **`make deploy` does not use `--wait`**: `docker compose up --wait` treats the
   successfully exited one-shot `kafka-init` container as a failure when no service depends
   on it (docker/compose#10596). Health gating relies on `depends_on` conditions; check
@@ -326,6 +361,18 @@ Symptom → cause → fix entries are added here the moment something breaks dur
   error-boundary scenario B; reproduce with `tests/e2e/send-tickets.sh --probe-unknown-booking`.
   Screenshots: `../assets/phase-5/silent-loop-before-fix.png` (before),
   `../assets/phase-5/incident-booking-not-found.png` (after, probe run 2026-09-25).
+- **Symptom:** a configuration backup made next to the environment file, such as
+  `infra/.env.bak`, is gone after the next `make deploy` (seen in Phase 6.1 while
+  restoring `DATABASE_URL` for scenario A3a).
+  **Cause:** `make sync` runs rsync with `--delete`, and its exclude list matched only the
+  exact name `.env`; every other file that is not in the repository is removed from the
+  stand on each deploy.
+  **Fix:** keep configuration backups **outside the deploy directory**, in a root-owned
+  directory on the host, e.g. `/root/env-backups/` (as root: `cp infra/.env
+  /root/env-backups/env.$(date +%Y%m%dT%H%M%S)`). As a safety net the Makefile now also
+  excludes `.env.bak*` from the sync (dry run verified: `.env.example` is still
+  transferred, `.env` and `.env.bak*` are left alone) — but a backup that lives next to the
+  file it backs up is still on the wrong disk; the exclude only prevents the accident.
 - **Symptom:** the API still answers 200 without credentials after enabling protection.
   **Cause:** the config was edited on the workstation but not synced to the VM; Compose
   restarted the old files.
@@ -336,3 +383,6 @@ Symptom → cause → fix entries are added here the moment something breaks dur
   and only on a fresh secondary storage.
   **Fix:** log in as `admin` with the password from `infra/.env`. To change users after the first
   start, recreate the volumes (`docker compose down -v`) or use the Admin UI at `/admin`.
+- **Symptom:** `make check-public` fails on a screenshot, e.g. `Binary file ./docs/assets/phase-6/a2-01-outage-log.png matches`.
+  **Cause:** `grep -i` scans PNG bytes; three random compressed bytes can spell a pattern word in mixed case (seen: `etG`, `ETg` in Phase 6.1).
+  **Fix:** the check runs with `-I` (skip binary files). Screenshots are checked visually when cropped — no address bar, no hostnames, no internal IPs.

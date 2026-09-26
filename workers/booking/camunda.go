@@ -21,10 +21,12 @@ type camundaClient struct {
 }
 
 type activatedJob struct {
-	JobKey    string         `json:"jobKey"`
-	Type      string         `json:"type"`
-	Retries   int            `json:"retries"`
-	Variables map[string]any `json:"variables"`
+	JobKey             string         `json:"jobKey"`
+	Type               string         `json:"type"`
+	Retries            int            `json:"retries"`
+	ProcessInstanceKey string         `json:"processInstanceKey"`
+	ElementID          string         `json:"elementId"`
+	Variables          map[string]any `json:"variables"`
 }
 
 func (c *camundaClient) do(ctx context.Context, method, path string, body any, out any) error {
@@ -77,10 +79,14 @@ func (c *camundaClient) completeJob(ctx context.Context, jobKey string, variable
 	}, nil)
 }
 
-func (c *camundaClient) failJob(ctx context.Context, jobKey string, retries int, errorMessage string) error {
+// failJob fails a job with the retries it should have left. retryBackOff (milliseconds,
+// 8.9 "Fail job" request body) keeps the job from being re-activated before now + backoff;
+// 0 means immediately.
+func (c *camundaClient) failJob(ctx context.Context, jobKey string, retries int, retryBackOff time.Duration, errorMessage string) error {
 	return c.do(ctx, http.MethodPost, "/v2/jobs/"+jobKey+"/failure", map[string]any{
 		"retries":      retries,
 		"errorMessage": errorMessage,
+		"retryBackOff": retryBackOff.Milliseconds(),
 	}, nil)
 }
 

@@ -1,0 +1,21 @@
+# Alert rules for the stand (design §2.3). Evaluated by Prometheus; Grafana lists them under
+# Alerting -> Alert rules (data-source managed). No Alertmanager: the stand has no receiver.
+groups:
+  - name: camunda-stand
+    rules:
+      - alert: CamundaIncidentsPending
+        expr: sum(zeebe_pending_incidents_total) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Unresolved incidents in the Orchestration Cluster"
+          description: "{{ $value }} pending incident(s). Triage in Operate; runbook docs/runbooks/incidents.md."
+      - alert: OrchestrationTargetDown
+        expr: up{job="orchestration"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Orchestration Cluster management endpoint is not answering"
+          description: "Prometheus cannot scrape orchestration:9600 — check `docker compose ps` and the container log."

@@ -44,8 +44,19 @@ export STAND_HOST=camunda-stand                 # --check queries classification
 ./send-tickets.sh --check
 
 # negative probe (never part of the default run): one cancel ticket with an unknown
-# bookingRef → BOOKING_NOT_FOUND → incident on cancel-refund (no boundary event yet, Phase 6)
+# bookingRef → BOOKING_NOT_FOUND → incident on cancel-refund (no boundary event yet, Phase 6.2)
 ./send-tickets.sh --probe-unknown-booking
+
+# Phase 6.1 incident probes (own probe-… run id, never part of verify): each produces its
+# ticket(s), prints "ticketId processInstanceKey" once the instance exists, and exits —
+# the incident is watched with --incidents, Grafana or Operate
+./send-tickets.sh --probe-booking-5xx    # A1: BK-FAIL-500 → 500 → retries with backoff → incident
+make fault-on && ./send-tickets.sh --probe-outage   # A2: injected 503 on BK-81 (cancel) + BK-77 (change)
+./send-tickets.sh --probe-classify       # A3b: with postgres stopped → audit write fails → incident
+
+# operator view: ACTIVE incidents, then CREATED jobs older than 60 s that no worker ever
+# activated (deadline null) — the "worker is down" signal without monitoring (A3a)
+./send-tickets.sh --incidents
 ```
 
 Each run gets a `RUN_ID` (UTC timestamp). The event payload carries

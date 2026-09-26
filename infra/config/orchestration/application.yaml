@@ -43,3 +43,13 @@ camunda:
         number-of-replicas: 0
   mcp:
     enabled: true
+# Prometheus scrape endpoint on the management port (9600, not published; scraped by the
+# monitoring profile). Property names from the 8.9 metrics guide (design D6-1).
+management:
+  endpoint:
+    prometheus:
+      access: unrestricted
+  prometheus:
+    metrics:
+      export:
+        enabled: true
