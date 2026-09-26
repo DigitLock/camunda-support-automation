@@ -3,7 +3,8 @@
 **Scope:** incidents whose cause is outside the process model — bad data, a failing
 downstream service, a configuration error, an absent worker. The model is right, so the
 instance is kept and the incident is resolved in place. Incidents caused by the model
-itself (an uncaught BPMN error) are scenario B, resolved by migration (Phase 6.2).
+itself (an uncaught BPMN error) are scenario B, resolved by migration — `migration.md`;
+the timeout variant of scenario A is in `timeout.md`.
 
 **Last run:** 2026-09-26 on the stand, process v8, every case below executed as written.
 Design and observed results: `docs/design/operations-v1.md` §3.1.
@@ -58,6 +59,8 @@ address or a password; they come from the shell environment and `infra/.env`.
 | `JOB_NO_RETRIES` on **several instances**, same HTTP status (`503`) on different identifiers, booking-api container healthy | downstream outage | wait for, or fix, the downstream service (`make fault-off` in the drill) | **batch Retry** from the instance list |
 | `JOB_NO_RETRIES` on `classify-ticket`, message `audit write failed: …` | configuration / dependency of a worker | bring the dependency back (`docker compose start postgres`) | **Retry** |
 | **No incident**, instances stay Active on `classify-ticket`, `--incidents` section two lists the job, restart count grows | worker absent | fix the worker's config, `docker compose up -d <worker>` | **no Retry** — the job was never failed, the worker picks it up |
+| `UNHANDLED_ERROR_EVENT`, message "Expected to throw an error event with the code '…' … but it was not caught" | **model gap** — the worker threw a BPMN error the deployed version has no catch event for | deploy the fixed version, **migrate** the instance to it, then Retry — `migration.md` | **Retry only after the migration** |
+| `JOB_NO_RETRIES` with `httpStatus=0` and "timeout after 10s" in the message; incident ≈ 50 s after the first attempt | downstream **slow or hung**, not necessarily down | check the dependency first, then Retry (recovered) or Cancel (never valid) — `timeout.md` | **Retry** if recovered |
 | the corrected data changes the **inputs of a decision already passed** (`route-ticket`: team, priority, SLA) | data, upstream | Retry re-runs only the failed step and does not recompute earlier decisions | **Modify** (move the token back to `route-ticket`) or **Cancel** and resubmit the ticket |
 
 Every variable edit and every Retry is recorded in the instance's **Operations Log** tab —

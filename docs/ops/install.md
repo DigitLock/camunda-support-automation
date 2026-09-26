@@ -384,5 +384,5 @@ Symptom → cause → fix entries are added here the moment something breaks dur
   **Fix:** log in as `admin` with the password from `infra/.env`. To change users after the first
   start, recreate the volumes (`docker compose down -v`) or use the Admin UI at `/admin`.
 - **Symptom:** `make check-public` fails on a screenshot, e.g. `Binary file ./docs/assets/phase-6/a2-01-outage-log.png matches`.
-  **Cause:** `grep -i` scans PNG bytes; three random compressed bytes can spell a pattern word in mixed case (seen: `etG`, `ETg` in Phase 6.1).
+  **Cause:** `grep -i` scans PNG bytes; three random compressed bytes can spell a pattern word in mixed case (seen in Phase 6.1 on two PNGs).
   **Fix:** the check runs with `-I` (skip binary files). Screenshots are checked visually when cropped — no address bar, no hostnames, no internal IPs.

@@ -20,8 +20,8 @@ compose profile (ADR-006).
 | Booking API outcome | Job action |
 |---|---|
 | 2xx | complete with `{bookingStatus}`; for `booking.cancel` additionally `{refundAmount, refundCurrency}` — the booking's value and currency from the API response |
-| 404, or `bookingRef` missing/null | BPMN error `BOOKING_NOT_FOUND` |
-| 5xx, client timeout (10 s) or transport error | fail with `retries - 1`, `retryBackOff` = `RETRY_BACKOFF`, errorMessage `booking-api HTTP 500 on POST /bookings/BK-FAIL-500/cancel (retries left: 2)` (cause is `HTTP <n>`, `timeout after 10s` or `transport error: …`); the same text is the incident message in Operate once retries are exhausted (`JOB_NO_RETRIES`, after 3 × `RETRY_BACKOFF` ≈ 20 s with the defaults) |
+| 404, or `bookingRef` missing/null | BPMN error `BOOKING_NOT_FOUND`, errorMessage `booking BK-UNKNOWN not found (HTTP 404 on POST /bookings/BK-UNKNOWN/cancel)` or `bookingRef missing or null (no booking-api call made)`. The call also carries `variables: {errorCode, errorMessage}` — in Camunda 8 an error catch event receives variables only from the throw-error payload, at its local scope. Uncaught (v8): incident `UNHANDLED_ERROR_EVENT`; caught (v9 boundary events, Phase 6.2): their output mappings `errorCode ← =errorCode`, `errorMessage ← =errorMessage` copy the payload into the process scope and the token moves to `handle-by-agent` |
+| 5xx, client timeout (10 s, `BK-FAIL-TIMEOUT`) or transport error — deliberately **not** a BPMN error (D6-10) | fail with `retries - 1`, `retryBackOff` = `RETRY_BACKOFF`, errorMessage `booking-api HTTP 500 on POST /bookings/BK-FAIL-500/cancel (retries left: 2)` (cause is `HTTP <n>`, `timeout after 10s` or `transport error: …`); the same text is the incident message in Operate once retries are exhausted (`JOB_NO_RETRIES`, after 3 × `RETRY_BACKOFF` ≈ 20 s with the defaults) |
 
 Activation: `maxJobsToActivate` 5, long-poll `requestTimeout` 10 s, job `timeout` 60 s
 (headroom over the mock API's `BK-FAIL-TIMEOUT` 30 s delay).

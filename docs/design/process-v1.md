@@ -54,8 +54,8 @@ The four resolving branches feed `notify-customer` directly (multiple incoming s
 | `review-classification` | User task (Camunda user task) | Review classification | linked form `review-classification`; outputs `needsReview = false`, `intent`, `sentiment`, `escalate`, `reviewedBy` (v7, §12) |
 | `record-review` | Service task | Record review | job type `review.record` (v7, §12); no I/O mappings |
 | `gw-review-exit` | Exclusive gateway | Escalate? | conditions in §4 |
-| `change-booking` | Service task | Change booking | job type `booking.change`; output `resolution = "booking_changed"` |
-| `cancel-refund` | Service task | Cancel and refund | job type `booking.cancel`; output `resolution = "refund_issued"` |
+| `change-booking` | Service task | Change booking | job type `booking.change`; output `resolution = "booking_changed"` ; v9: boundary event `err-booking-not-found-change` (§11) |
+| `cancel-refund` | Service task | Cancel and refund | job type `booking.cancel`; output `resolution = "refund_issued"` ; v9: boundary event `err-booking-not-found-cancel` (§11) |
 | `answer-question` | Service task | Answer question | job type `ticket.answer`; outputs `resolution = "answered"`, `answerText`, `answerSource`, `answerKbIds` (v8, §11) |
 | `handle-by-agent` | User task (Camunda user task) | Handle by agent | linked form `handle-by-agent`; output `resolution = "agent_handled"` |
 | `notify-customer` | Service task | Notify customer | job type `ticket.notify` |
@@ -313,6 +313,37 @@ Accepted live in run `20260925T121224Z`.
 ![Tasklist: review-classification form v2](../assets/phase-5/tasklist-review-form-v2.png)
 
 *Tasklist — the fixed review form (5.5, redeployed on v8, accepted in run `20260925T142455Z`): the "LLM classification" block shows source, confidence, language and rationale only, so a corrected select no longer overwrites the LLM snapshot on screen.*
+
+### v8→v9 (Phase 6.2)
+
+Deployed as **process v9** on 2026-09-26 (DMN unchanged). One change, owner decision D6-8
+(`operations-v1.md`): two **interrupting error boundary events** for the BPMN error the
+booking worker throws when a booking does not exist.
+
+| Element | Attached to | Definition | Output mappings | Flow |
+|---|---|---|---|---|
+| `err-booking-not-found-cancel` "Booking not found" | `cancel-refund` | error `Error_1gqssjg` (`BOOKING_NOT_FOUND`) | `=errorCode` → `errorCode`, `=errorMessage` → `errorMessage` | `Flow_18rxrmp` → `handle-by-agent` |
+| `err-booking-not-found-change` "Booking not found" | `change-booking` | error `Error_1gqssjg` (`BOOKING_NOT_FOUND`) | same | `Flow_11wks25` → `handle-by-agent` |
+
+**Camunda 8 payload rule.** An error catch event receives variables only from the
+`variables` object of the throw-error command, at the catch event's local scope; there is no
+`errorCodeVariable` / `errorMessageVariable` (those are Camunda 7). The worker therefore
+sends `variables: {errorCode, errorMessage}` on `POST /v2/jobs/{key}/error`, and the output
+mappings above copy them into the process scope (D6-8). Observed live: `errorCode` and
+`errorMessage` appear twice in `POST /v2/variables/search` — at the boundary event's scope and
+at the process-instance scope. The `handle-by-agent` form does not show `errorMessage` yet
+(backlog, with the v10 form redeploy).
+
+Effect on running instances: a v8 instance stuck on `UNHANDLED_ERROR_EVENT` is migrated to
+v9 with an identity mapping and the incident resolved with Retry; the same job is activated
+again, the error is thrown again and caught this time — `cancel-refund` is terminated by the
+interrupting event, the token moves to `handle-by-agent`. Runbook: `docs/runbooks/migration.md`.
+The eight e2e tickets behave identically on v9 (8/8 + dedup, 2026-09-26). The SLA timer is
+**not** in v9 (D6-9, v10).
+
+![Operate: v9 with the two boundary events, both migrated instances waiting in handle-by-agent](../assets/phase-6/b-07a-v9-overview.png)
+
+*Operate — process v9: "Booking not found" boundary events on Change booking and Cancel and refund; the two migrated instances wait in Handle by agent (⊘2 on Cancel and refund = element instances terminated by the interrupting event).*
 
 ## 12. Decisions
 

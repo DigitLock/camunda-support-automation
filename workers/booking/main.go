@@ -134,7 +134,8 @@ func (w *worker) handle(ctx context.Context, job activatedJob) {
 	log = log.With("bookingRef", ref)
 	if ref == "" {
 		log.Info("error", "errorCode", errBookingNotFound, "reason", "bookingRef missing or null")
-		w.report(ctx, log, job, "error", w.camunda.throwJobError(ctx, job.JobKey, errBookingNotFound, "bookingRef is missing or null"))
+		w.report(ctx, log, job, "error", w.camunda.throwJobError(ctx, job.JobKey, errBookingNotFound,
+			"bookingRef missing or null (no booking-api call made)"))
 		return
 	}
 
@@ -156,7 +157,11 @@ func (w *worker) handle(ctx context.Context, job activatedJob) {
 	case resp.StatusCode == http.StatusNotFound:
 		drain(resp)
 		log.Info("error", "errorCode", errBookingNotFound)
-		w.report(ctx, log, job, "error", w.camunda.throwJobError(ctx, job.JobKey, errBookingNotFound, "booking not found: "+ref))
+		// the message reaches the process as errorMessage through the output mappings of
+		// the v9 boundary events (throw-error payload, Phase 6.2), and Operate when
+		// nothing catches the error
+		w.report(ctx, log, job, "error", w.camunda.throwJobError(ctx, job.JobKey, errBookingNotFound,
+			fmt.Sprintf("booking %s not found (HTTP 404 on POST /bookings/%s/%s)", ref, ref, action)))
 	case resp.StatusCode >= 500:
 		drain(resp)
 		w.fail(ctx, log, job, ref, action, fmt.Sprintf("HTTP %d", resp.StatusCode), resp.StatusCode)

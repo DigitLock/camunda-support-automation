@@ -14,8 +14,12 @@
 #   send-tickets.sh --probe-unknown-booking
 #                                       negative probe (never part of the default run): one
 #                                       cancel ticket with an unknown bookingRef → BPMN error
-#                                       BOOKING_NOT_FOUND has no boundary event yet → incident
-#                                       on cancel-refund (Phase 6.2 scenario B input)
+#                                       BOOKING_NOT_FOUND. Waits for either outcome and prints
+#                                       which: v8 (uncaught) → incident on cancel-refund;
+#                                       v9+ (boundary event, Phase 6.2) → open handle-by-agent
+#   send-tickets.sh --probe-timeout      Phase 6.2: one cancel ticket on BK-FAIL-TIMEOUT → client
+#                                       timeout after 10 s → fail with backoff → incident after
+#                                       ~50 s (D6-10). Prints the key, exits.
 #   send-tickets.sh --probe-booking-5xx  Phase 6.1 A1: one cancel ticket on BK-FAIL-500 → the
 #                                       worker fails the job with backoff → incident on
 #                                       cancel-refund after the retries. Prints the instance key
@@ -466,14 +470,29 @@ probe_unknown_booking() {
     language: "en", bookingRef: "BK-UNKNOWN", bookingValue: 100, currency: "EUR",
     customerCurrency: "EUR", runId: $run, messageId: ($id + "-" + $run)}')
   produce_event "$id" "$payload"
-  echo "produced $id (bookingRef BK-UNKNOWN, runId $RUN_ID) — expecting an incident on cancel-refund"
+  echo "produced $id (bookingRef BK-UNKNOWN, runId $RUN_ID) — BOOKING_NOT_FOUND: incident on v8, handle-by-agent on v9+"
   key=$(wait_for_instance "$id") || exit 1
-  if ! incident=$(poll open_incident "$key"); then
-    echo "FAIL probe: no incident on instance $key within ${TIMEOUT_SECONDS}s (state $(api GET "/process-instances/$key" | jq -r .state))"
+  local outcome
+  if ! outcome=$(poll unknown_booking_outcome "$key"); then
+    echo "FAIL probe: neither an incident nor an open handle-by-agent task on instance $key within ${TIMEOUT_SECONDS}s (state $(api GET "/process-instances/$key" | jq -r .state))"
     exit 1
   fi
-  echo "PASS probe: instance $key has an incident — $incident"
-  echo "resolve or cancel it in Operate (instance key $key); it is not part of any e2e run"
+  case "$outcome" in
+    incident*) echo "PASS probe (uncaught, v8): instance $key has an incident — ${outcome#incident }"
+               echo "scenario B: migrate it to v9 (tests/ops/migrate-instance.sh $key 9), then Retry in Operate" ;;
+    task*)     echo "PASS probe (caught by the boundary event, v9+): instance $key waits in handle-by-agent — ${outcome#task }" ;;
+  esac
+  echo "the instance is not part of any e2e run; finish or cancel it in Operate / Tasklist"
+}
+
+# unknown_booking_outcome INSTANCE_KEY -> "incident <details>" or "task <userTaskKey>" once either exists
+unknown_booking_outcome() {
+  local found
+  found=$(open_incident "$1")
+  if [ -n "$found" ]; then echo "incident $found"; return 0; fi
+  found=$(api POST /user-tasks/search "$(jq -cn --arg k "$1" '{filter: {processInstanceKey: $k, elementId: "handle-by-agent", state: "CREATED"}}')" \
+    | jq -r '.items[0] | select(. != null) | "userTaskKey \(.userTaskKey)"')
+  [ -n "$found" ] && echo "task $found"
 }
 
 # ---- Phase 6.1 probes: produce one or more tickets under their own probe run id, print
@@ -532,6 +551,14 @@ probe_classify() {
     null null "with postgres stopped: audit write fails → incident on classify-ticket (D5-3); with postgres up: a normal question ticket"
 }
 
+probe_timeout() {
+  probe_run_id
+  probe_ticket T-9006 "Cancel my booking and refund" \
+    "I cannot travel anymore. Please cancel my booking and refund the full amount to my card." \
+    BK-FAIL-TIMEOUT 100 "expecting a client timeout after 10 s per attempt → 3 attempts with 10 s backoff → incident on cancel-refund after ~50 s (D6-10)"
+  echo "watch: $0 --incidents   (the errorMessage reads 'booking-api timeout after 10s on POST /bookings/BK-FAIL-TIMEOUT/cancel (retries left: 0)')"
+}
+
 # --incidents: two sections over the 8.9 REST API v2. Fields verified against the SDK's
 # generated models (IncidentResult, JobSearchResult): incident state ACTIVE; job state
 # CREATED with deadline == null means the job was never activated by a worker — that is
@@ -578,6 +605,9 @@ case "$MODE" in
   --probe-classify)
     probe_classify
     ;;
+  --probe-timeout)
+    probe_timeout
+    ;;
   --incidents)
     list_incidents
     ;;
@@ -591,6 +621,6 @@ case "$MODE" in
     check_classification_review
     ;;
   *)
-    echo "usage: $0 [--manual-user-tasks | --check | --probe-unknown-booking | --probe-booking-5xx | --probe-outage | --probe-classify | --incidents]" >&2; exit 2
+    echo "usage: $0 [--manual-user-tasks | --check | --probe-unknown-booking | --probe-booking-5xx | --probe-outage | --probe-classify | --probe-timeout | --incidents]" >&2; exit 2
     ;;
 esac

@@ -130,35 +130,50 @@ case is covered by design, not by this run.
 ### 3.2 Scenario B — resolve by migration (6.2)
 
 Trigger: `tests/e2e/send-tickets.sh --probe-unknown-booking` — the booking worker throws
-BPMN error `BOOKING_NOT_FOUND`, process v8 has no boundary event for it, so Operate shows
-`UNHANDLED_ERROR_EVENT` on `cancel-refund` (Phase 5.5 finding, `install.md`).
+BPMN error `BOOKING_NOT_FOUND` with the message
+`booking BK-UNKNOWN not found (HTTP 404 on POST /bookings/BK-UNKNOWN/cancel)`. Process v8
+has no boundary event for it, so Operate shows `UNHANDLED_ERROR_EVENT` on `cancel-refund`
+(Phase 5.5 finding, `install.md`). The probe waits for either outcome and prints which one
+it found: the incident (v8) or an open `handle-by-agent` task (v9 and later).
 
-Fix in the model (owner, Modeler): **process v9** adds an interrupting error boundary
-event `err-booking-not-found` (error code `BOOKING_NOT_FOUND`) on `cancel-refund` **and**
-on `change-booking`, both routed to `handle-by-agent`. No other change to v9 except §4.
+Fix in the model (owner, Modeler): **process v9 = v8 plus two interrupting error boundary
+events** (D6-8): `err-booking-not-found-cancel` on `cancel-refund` and
+`err-booking-not-found-change` on `change-booking`, error code `BOOKING_NOT_FOUND`, each
+with two output mappings `errorCode ← =errorCode` and `errorMessage ← =errorMessage`, both
+flowing to `handle-by-agent`. Nothing else changes in v9 (the SLA timer is v10, D6-9). The
+mappings read the **throw-error payload**: in Camunda 8 an error catch event receives
+variables only from the `variables` object of the throw-error command, at the catch
+event's local scope (8.9 docs, error events → variable mappings), so the worker sends
+`variables: {errorCode, errorMessage}` with the error — without that payload the mappings
+resolve to null.
 
-Resolution of the live incident: migrate the stuck instance from v8 to v9 with the REST
-API, then resolve the incident so the job runs again and this time the error is caught:
+Resolution of the live incident, API path (`tests/ops/migrate-instance.sh <key> 9`):
 
-```
-POST /v2/process-instances/{processInstanceKey}/migration
-{ "targetProcessDefinitionKey": "<v9 key>",
-  "mappingInstructions": [ { "sourceElementId": "cancel-refund", "targetElementId": "cancel-refund" } ],
-  "operationReference": <runId-derived number> }
-```
+1. `POST /v2/process-definitions/search` with `processDefinitionId` + `version` → the
+   target `processDefinitionKey`.
+2. `POST /v2/element-instances/search` with `processInstanceKey` + `state = ACTIVE` → the
+   active elements (the `PROCESS` element is listed too and is never mapped).
+3. `POST /v2/process-instances/{processInstanceKey}/migration` with
+   `targetProcessDefinitionKey` and identity `mappingInstructions`
+   (`{sourceElementId: "cancel-refund", targetElementId: "cancel-refund"}`), plus an
+   `operationReference`.
+4. The incident is carried over; resolve it separately — Retry in Operate, or
+   `PATCH /v2/jobs/{jobKey}` (`{"changeset": {"retries": 1}}`) followed by
+   `POST /v2/incidents/{incidentKey}/resolution`. The job runs again, the error is thrown
+   again, and this time the new boundary event catches it: the token moves to
+   `handle-by-agent`, and the boundary event's output mappings copy `errorCode` /
+   `errorMessage` from the throw-error payload into the process scope.
 
 Rules that matter (8.9 migration concept, verified 2026-09-25): every active element
-needs a mapping instruction (here exactly one — the instance waits on `cancel-refund`);
-a catch event that exists only in the target is subscribed after migration, which is
-precisely how the new boundary event becomes active; the incident is carried over and
-must be resolved explicitly. The request body is taken from the REST API reference and
-is confirmed against the live API in 6.2 — the script does the call, so a wrong field
-name fails loudly.
+needs a mapping instruction; a catch event that exists only in the target is subscribed
+after migration — precisely how the new boundary event becomes active; the incident is
+carried over and must be resolved explicitly. The script refuses when the instance already
+runs the target version and never resolves incidents itself. The live demo uses the
+Operate UI (Migrate → v9 → Retry); the script is the documented API path. Endpoint and
+field names come from the installed 8.9 SDK models, not from memory.
 
-Automation: `send-tickets.sh --migrate-probe <processInstanceKey>` (6.2) does the
-migration and the resolution and then asserts that the instance reaches
-`handle-by-agent`. Evidence: Operate's instance history showing v8 → v9 and the caught
-error, the Prometheus incident counter, screenshots in `docs/assets/phase-6/`.
+Timeout (`--probe-timeout`, `BK-FAIL-TIMEOUT`) is **not** part of scenario B: the client
+timeout stays an infrastructure failure with retries and backoff (D6-10), i.e. scenario A.
 
 ### 3.3 Runbook
 
@@ -168,10 +183,12 @@ and the environment was wrong; migrate when the model was wrong".
 
 ## 4. SLA timer and `slaOverride` (6.3)
 
-### 4.1 Model change (process v9, owner)
+### 4.1 Model change (process v10, owner — 6.3)
 
 - Non-interrupting **timer boundary event** `sla-timer` on `handle-by-agent`, time date
-  `=slaDeadline`. The expression is evaluated when the task is entered; `slaDeadline` is
+  `=slaDeadline`. v10 = v9 + this timer + the `slaOverride` mapping below; migrating a
+  v9 instance that waits in `handle-by-agent` to v10 is the second migration case (D6-9):
+  the waiting user task gains a timer subscription. The expression is evaluated when the task is entered; `slaDeadline` is
   plain ISO 8601 with a zone since v7 (D3-11), which is the format a time date needs.
 - Its outgoing flow ends in `end-sla-breached`; the boundary event carries the output
   mapping `=true` → `slaBreached`. The token in `handle-by-agent` is untouched — the
@@ -298,6 +315,9 @@ Runbook: `docs/runbooks/backup-restore.md`.
 | D6-2 | Backup target is the stand VM's local disk for both stores (ES `fs` repository, orchestration `FILESYSTEM` store). Off-host copies are out of scope and the runbook says so | Owner decision 2026-09-25. Object storage is credentials and a bucket, not a procedure; the procedure — order, ids, pause/resume, restore with the same version — is what the phase demonstrates (ADR-008) |
 | D6-3 | Optional ticket variable `slaOverride` (ISO 8601 duration, e.g. `PT2M`) takes precedence over the DMN `slaHours` when `slaDeadline` is computed; DMN `routing-v1` unchanged; an unparsable value falls back to `slaHours` | Owner decision 2026-09-25. The SLA demo must fire in minutes without touching the policy tables; a fallback instead of an incident keeps a typo in a demo payload from becoming an incident drill |
 | D6-4 | Scenario B is resolved by **instance migration** to v9 (error boundary events on both booking tasks), not by cancelling and re-sending the ticket | The point of the phase is keeping the customer's instance; re-sending would also duplicate the Kafka `messageId` semantics (D4-5) |
-| D6-5 | The SLA boundary event is **non-interrupting** and records `slaBreached = true`; it does not reassign or cancel the task | An SLA breach is an operational fact, not a change of ownership; the agent finishes the ticket and analytics (Phase 7) count the breach |
+| D6-5 | The SLA boundary event is **non-interrupting** and records `slaBreached = true`; it does not reassign or cancel the task. **Lives in process v10 (6.3), not v9** — see D6-9 | An SLA breach is an operational fact, not a change of ownership; the agent finishes the ticket and analytics (Phase 7) count the breach |
 | D6-6 | The official Zeebe Grafana dashboard is not vendored; the stand ships a small provisioned dashboard built on the same metric names | 850 KB of Kubernetes-oriented JSON in a portfolio repo hides the eight panels that matter |
 | D6-7 | Connectors, workers and mock services are not scraped in Phase 6 | Compose healthchecks already gate them; process-level facts come from the engine's metrics. Go/Python metrics endpoints are parked in the backlog |
+| D6-8 | **Process v9 scope (6.2):** v8 plus two interrupting error boundary events, `err-booking-not-found-cancel` on `cancel-refund` and `err-booking-not-found-change` on `change-booking`, error code `BOOKING_NOT_FOUND`, each with the output mappings `errorCode ← =errorCode` and `errorMessage ← =errorMessage`, both to `handle-by-agent`. Nothing else changes. The mappings are filled from the throw-error payload: **the worker must send `variables: {errorCode, errorMessage}` on `POST /v2/jobs/{key}/error`, otherwise the mappings get nothing** — Camunda 8 has no `errorCodeVariable`/`errorMessageVariable` (those are Camunda 7) | Owner decision 2026-09-26, corrected the same day. One change per version keeps the migration v8 → v9 an identity mapping and the diff in Operate readable; the error variables give the agent the worker's message without opening the log |
+| D6-9 | **The SLA timer moves to process v10 (6.3).** v10 = v9 + `sla-timer` + the `slaOverride` mapping (§4). Migrating a v9 instance that waits in `handle-by-agent` to v10 is the second, different migration case: a waiting user task gains a new timer subscription | Owner decision 2026-09-26. Two migration cases of different kinds (error boundary on a failed service task; timer on a waiting user task) demonstrate more than one version with both, and D6-8 stays minimal |
+| D6-10 | **Timeouts stay infrastructure failures.** A booking-api client timeout (`BK-FAIL-TIMEOUT`, 10 s) fails the job with `retries - 1` and `RETRY_BACKOFF`, like a 5xx — incident after ~50 s. No `BOOKING_TIMEOUT` BPMN error, no boundary event | Owner decision 2026-09-26. A BPMN error is final for the job: converting a timeout into one would drop the automatic retry that heals a slow dependency (A2 self-heal); D4-1 unchanged |

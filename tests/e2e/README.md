@@ -5,7 +5,7 @@
 ticket T-1008 from Phase 5.5) through the deployed process (bash + curl + jq). Ticket
 payloads and expectations live in `tickets.json`; the script contains no data.
 
-Prerequisites: core stack up, `support-request-v1` (v5+) deployed, worker containers
+Prerequisites: core stack up, `support-request-v1` (v5+; the 8 tickets behave identically on v9) deployed, worker containers
 running (compose profile `workers`, see `docs/ops/install.md`). Since process v5 the
 tickets are **produced to Kafka** (`support.ticket.created`) — the Kafka start event
 connector is the only process entry — and verification still runs over the REST API:
@@ -34,17 +34,22 @@ export STAND_HOST=camunda-stand                 # --check queries classification
 # verify paths + resolution + notificationTemplate, exit 0/1
 ./send-tickets.sh
 
-# acceptance run: --manual-user-tasks only publishes, then lists EVERY open user task of
-# the run (element id, ticketId, userTaskKey) — the expected ones (T-1004, T-1005) plus any
-# borderline ticket the classifier sent to review (T-1006 on most runs). Instances that
-# finish without a user task or get stuck (incident) are printed as "no user task,
-# state=…" after at most TIMEOUT_SECONDS. It verifies nothing; complete the tasks in
-# Tasklist, then run the verification as a separate step:
+# acceptance run — a SEPARATE run mode, not a flag on the default run: --manual-user-tasks
+# produces a NEW batch of the 8 tickets under its own runId and leaves the user tasks open;
+# it lists EVERY open user task of that run (element id, ticketId, userTaskKey) — the expected
+# ones (T-1004, T-1005) plus any borderline ticket the classifier sent to review (T-1006 on
+# most runs). Instances that finish without a user task or get stuck (incident) are printed
+# as "no user task, state=…" after at most TIMEOUT_SECONDS. It verifies nothing. Complete
+# the tasks in Tasklist, then run --check as a separate step: it verifies that batch,
+# INCLUDING the reviewer's choices — T-1004 expects the review corrected to "question" and
+# not escalated; choosing Escalate in Tasklist makes T-1004 FAIL by design, not a regression
+# (seen 2026-09-26 on v9).
 ./send-tickets.sh --manual-user-tasks
 ./send-tickets.sh --check
 
 # negative probe (never part of the default run): one cancel ticket with an unknown
-# bookingRef → BOOKING_NOT_FOUND → incident on cancel-refund (no boundary event yet, Phase 6.2)
+# bookingRef → BOOKING_NOT_FOUND; prints which outcome it found — incident on cancel-refund
+# (v8, uncaught) or an open handle-by-agent task (v9+, caught by the boundary event, Phase 6.2)
 ./send-tickets.sh --probe-unknown-booking
 
 # Phase 6.1 incident probes (own probe-… run id, never part of verify): each produces its
@@ -53,6 +58,7 @@ export STAND_HOST=camunda-stand                 # --check queries classification
 ./send-tickets.sh --probe-booking-5xx    # A1: BK-FAIL-500 → 500 → retries with backoff → incident
 make fault-on && ./send-tickets.sh --probe-outage   # A2: injected 503 on BK-81 (cancel) + BK-77 (change)
 ./send-tickets.sh --probe-classify       # A3b: with postgres stopped → audit write fails → incident
+./send-tickets.sh --probe-timeout        # 6.2: BK-FAIL-TIMEOUT → client timeout → retries with backoff → incident (D6-10)
 
 # operator view: ACTIVE incidents, then CREATED jobs older than 60 s that no worker ever
 # activated (deadline null) — the "worker is down" signal without monitoring (A3a)
