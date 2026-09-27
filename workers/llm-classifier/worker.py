@@ -1,5 +1,5 @@
 """LLM classifier worker (Phase 5): serves ticket.classify, review.record, ticket.answer,
-ticket.notify.
+ticket.notify — and since Phase 6.3 sla.escalate (sla.py).
 
 ticket.classify runs the real LLM path since 5.2: classifier.py (Claude call → guardrails
 → retry → keyword fallback, D5-2/D5-7), mandatory audit to PostgreSQL (audit.py, D5-3).
@@ -29,6 +29,7 @@ import audit
 import classifier
 import generator
 import handlers
+import sla
 from handlers import HANDLERS
 
 log = logging.getLogger("llm-classifier")
@@ -179,6 +180,7 @@ def start_health_server() -> None:
 async def main() -> None:
     auditor = audit.from_env()
     auditor.connect_with_retry()
+    auditor.ensure_sla_schema()  # 6.3: CREATE TABLE IF NOT EXISTS on an existing volume
     clf = classifier.build_from_env()  # fails fast on missing key or prompt file
     gen = generator.build_from_env()   # same for the answer/notify prompts and the KB
 
@@ -195,6 +197,7 @@ async def main() -> None:
         "ticket.answer": make_generate_callback("ticket.answer", gen, auditor),
         "ticket.notify": make_generate_callback("ticket.notify", gen, auditor),
         "review.record": make_review_callback(auditor),
+        "sla.escalate": sla.make_sla_callback(client, auditor),
     }
     assert set(HANDLERS) <= set(callbacks), "every pure handler needs a callback"
     for job_type, cb in callbacks.items():

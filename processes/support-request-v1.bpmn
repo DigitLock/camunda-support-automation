@@ -136,7 +136,7 @@
           <zeebe:output source="=routing.priority" target="priority" />
           <zeebe:output source="=routing.slaHours" target="slaHours" />
           <zeebe:output source="=routing.requiredChecks" target="requiredChecks" />
-          <zeebe:output source="={s: string(now() + duration(&#34;PT&#34; + string(routing.slaHours) + &#34;H&#34;)),&#10;  v: if contains(s, &#34;[&#34;) then substring before(s, &#34;[&#34;)&#10;     else if contains(s, &#34;@&#34;) then substring before(s, &#34;@&#34;) + &#34;Z&#34;&#10;     else s}.v" target="slaDeadline" />
+          <zeebe:output source="=   {s: string(if is defined(slaOverride) and slaOverride != null&#10;              then now() + duration(slaOverride)&#10;              else now() + duration(&#34;PT&#34; + string(routing.slaHours) + &#34;H&#34;)),&#10;    v: if contains(s, &#34;[&#34;) then substring before(s, &#34;[&#34;)&#10;       else if contains(s, &#34;@&#34;) then substring before(s, &#34;@&#34;) + &#34;Z&#34;&#10;       else s}.v" target="slaDeadline" />
         </zeebe:ioMapping>
       </bpmn:extensionElements>
       <bpmn:incoming>Flow_127gzh4</bpmn:incoming>
@@ -161,7 +161,7 @@
           <zeebe:property name="deduplicationModeManualFlag" value="false" />
           <zeebe:property name="deduplicationMode" value="AUTO" />
           <zeebe:property name="resultVariable" value="" />
-          <zeebe:property name="resultExpression" value="={ticketId: value.ticketId, customerId: value.customerId, customerTier: value.customerTier, subject: value.subject, body: value.body, language: value.language, bookingRef: value.bookingRef, bookingValue: value.bookingValue, currency: value.currency, customerCurrency: value.customerCurrency, runId: value.runId}" />
+          <zeebe:property name="resultExpression" value="={ticketId: value.ticketId, customerId: value.customerId, customerTier: value.customerTier, subject: value.subject, body: value.body, language: value.language, bookingRef: value.bookingRef, bookingValue: value.bookingValue, currency: value.currency, customerCurrency: value.customerCurrency, runId: value.runId, slaOverride: value.slaOverride}" />
         </zeebe:properties>
       </bpmn:extensionElements>
       <bpmn:outgoing>Flow_0u8bwc8</bpmn:outgoing>
@@ -232,7 +232,7 @@
           <zeebe:input source="support.ticket.resolved" target="topic.topicName" />
           <zeebe:input source="noSchema" target="schemaStrategy.type" />
           <zeebe:input source="=ticketId" target="message.key" />
-          <zeebe:input source="={ticketId: ticketId, resolution: resolution, team: team, priority: priority, slaDeadline: slaDeadline, refundAmountCustomer: refundAmountCustomer, runId: runId}" target="message.value" />
+          <zeebe:input source="={ticketId: ticketId, resolution: resolution, team: team, priority: priority, slaDeadline: slaDeadline, refundAmountCustomer: refundAmountCustomer, runId: runId, slaBreached: slaBreached}" target="message.value" />
         </zeebe:ioMapping>
         <zeebe:taskHeaders>
           <zeebe:header key="elementTemplateVersion" value="6" />
@@ -275,6 +275,28 @@
       <bpmn:errorEventDefinition id="ErrorEventDefinition_1up3wqm" errorRef="Error_1gqssjg" />
     </bpmn:boundaryEvent>
     <bpmn:sequenceFlow id="Flow_11wks25" sourceRef="err-booking-not-found-change" targetRef="handle-by-agent" />
+    <bpmn:boundaryEvent id="sla-timer" name="SLA deadline" cancelActivity="false" attachedToRef="handle-by-agent">
+      <bpmn:outgoing>Flow_0dnrh6m</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TimerEventDefinition_1ryxmfz">
+        <bpmn:timeDate xsi:type="bpmn:tFormalExpression">=slaDeadline</bpmn:timeDate>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:sequenceFlow id="Flow_0dnrh6m" sourceRef="sla-timer" targetRef="escalate-sla" />
+    <bpmn:serviceTask id="escalate-sla" name="Escalate SLA">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="sla.escalate" retries="3" />
+        <zeebe:ioMapping>
+          <zeebe:output source="=slaBreached" target="slaBreached" />
+          <zeebe:output source="=escalatedAt" target="escalatedAt" />
+        </zeebe:ioMapping>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_0dnrh6m</bpmn:incoming>
+      <bpmn:outgoing>Flow_140qkfl</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="end-sla-escalated" name="SLA escalated">
+      <bpmn:incoming>Flow_140qkfl</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_140qkfl" sourceRef="escalate-sla" targetRef="end-sla-escalated" />
   </bpmn:process>
   <bpmn:message id="Message_2kod71m" />
   <bpmn:message id="Message_07jvcdv" name="092c3c27-8495-4d66-bc1f-36f4f8115811" />
@@ -366,6 +388,16 @@
         <dc:Bounds x="1150" y="60" width="100" height="80" />
         <bpmndi:BPMNLabel />
       </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_0lfa8kt_di" bpmnElement="escalate-sla">
+        <dc:Bounds x="1410" y="550" width="100" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_0k2kn21_di" bpmnElement="end-sla-escalated">
+        <dc:Bounds x="1572" y="572" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1555" y="615" width="71" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Event_0moyryt_di" bpmnElement="err-booking-not-found-cancel">
         <dc:Bounds x="1182" y="272" width="36" height="36" />
         <bpmndi:BPMNLabel>
@@ -378,6 +410,12 @@
           <dc:Bounds x="1205" y="165" width="89" height="14" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_1cgqgeh_di" bpmnElement="sla-timer">
+        <dc:Bounds x="1312" y="532" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1297" y="575" width="66" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
       <bpmndi:BPMNEdge id="Flow_02q5fd0_di" bpmnElement="Flow_02q5fd0">
         <di:waypoint x="645" y="400" />
         <di:waypoint x="685" y="400" />
@@ -387,7 +425,7 @@
         <di:waypoint x="710" y="100" />
         <di:waypoint x="1150" y="100" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="849" y="42.5" width="82" height="14" />
+          <dc:Bounds x="903" y="83.5" width="82" height="14" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_0ut4fcm_di" bpmnElement="cancel_refund">
@@ -395,7 +433,7 @@
         <di:waypoint x="730" y="250" />
         <di:waypoint x="1150" y="250" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="865" y="191" width="73" height="14" />
+          <dc:Bounds x="907" y="233" width="73" height="14" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_1b7j9ee_di" bpmnElement="question">
@@ -514,6 +552,15 @@
         <di:waypoint x="1200" y="180" />
         <di:waypoint x="1350" y="180" />
         <di:waypoint x="1350" y="470" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_0dnrh6m_di" bpmnElement="Flow_0dnrh6m">
+        <di:waypoint x="1330" y="568" />
+        <di:waypoint x="1330" y="590" />
+        <di:waypoint x="1410" y="590" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_140qkfl_di" bpmnElement="Flow_140qkfl">
+        <di:waypoint x="1510" y="590" />
+        <di:waypoint x="1572" y="590" />
       </bpmndi:BPMNEdge>
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>

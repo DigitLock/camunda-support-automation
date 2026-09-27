@@ -1,7 +1,8 @@
 """Mandatory audit writes to PostgreSQL (design D5-3).
 
-One llm_audit row per ticket.classify / ticket.answer / ticket.notify (job_type column)
-and one classification_review row per review.record (5.3). A failed write raises — the SDK then fails the job with
+One llm_audit row per ticket.classify / ticket.answer / ticket.notify (job_type column),
+one classification_review row per review.record (5.3) and one sla_escalation row per
+sla.escalate (6.3). A failed write raises — the SDK then fails the job with
 retries - 1, and exhausted retries surface as an incident in Operate. That is deliberate:
 an unauditable classification must not complete silently (verified against the SDK dev39
 source: any exception in a handler callback becomes a fail-job action).
@@ -135,6 +136,64 @@ class Audit:
         except psycopg.Error as exc:
             self._reset()
             raise RuntimeError(f"review write failed: {exc}") from exc
+
+    # ---- SLA escalation (Phase 6.3) ----
+
+    # Same DDL as infra/postgres/init/002_sla_escalation.sql: the init directory runs only on
+    # an empty volume, so an existing stand gets the table from here. Keep both identical.
+    _SLA_DDL = """
+        CREATE TABLE IF NOT EXISTS sla_escalation (
+            id                   bigserial PRIMARY KEY,
+            ticket_id            text        NOT NULL,
+            run_id               text,
+            process_instance_key text        NOT NULL,
+            user_task_key        text,
+            sla_deadline         timestamptz,
+            escalated_at         timestamptz NOT NULL,
+            previous_priority    int,
+            new_priority         int,
+            outcome              text        NOT NULL,
+            created_at           timestamptz DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS sla_escalation_ticket_run_idx ON sla_escalation (ticket_id, run_id);
+    """
+
+    def ensure_sla_schema(self) -> None:
+        """Idempotent; called once at startup after connect_with_retry()."""
+        try:
+            self._connection().execute(self._SLA_DDL)
+            log.info("audit schema: sla_escalation present")
+        except psycopg.Error as exc:
+            self._reset()
+            raise RuntimeError(f"sla_escalation schema check failed: {exc}") from exc
+
+    def write_sla_escalation(
+        self,
+        *,
+        ticket_id: str,
+        run_id: str | None,
+        process_instance_key: str,
+        user_task_key: str | None,
+        sla_deadline: str | None,
+        escalated_at,
+        previous_priority: int | None,
+        new_priority: int | None,
+        outcome: str,
+    ) -> None:
+        try:
+            self._connection().execute(
+                """
+                INSERT INTO sla_escalation
+                    (ticket_id, run_id, process_instance_key, user_task_key, sla_deadline,
+                     escalated_at, previous_priority, new_priority, outcome)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (ticket_id, run_id, process_instance_key, user_task_key, sla_deadline,
+                 escalated_at, previous_priority, new_priority, outcome),
+            )
+        except psycopg.Error as exc:
+            self._reset()
+            raise RuntimeError(f"sla escalation write failed: {exc}") from exc
 
     def _reset(self) -> None:
         """Close so the next attempt reconnects cleanly; the caller lets the job fail (D5-3)."""

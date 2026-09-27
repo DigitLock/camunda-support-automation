@@ -78,6 +78,19 @@ if [ "$(echo "$active" | jq 'length')" = "0" ]; then
   echo "error: instance $KEY has no active element (nothing to map)" >&2; exit 1
 fi
 
+# 3b. does the target attach a timer boundary event to one of the active elements? Boundary
+# events are never element instances, so the identity mapping above is complete — but the
+# engine creates the timer subscription on migration, from the instance's CURRENT variables
+# (v10: sla-timer on handle-by-agent reads slaDeadline). Say so before asking.
+target_xml=$(api GET "/process-definitions/$target_def/xml" || true)
+timer_hint=""
+for el in $(echo "$active" | jq -r '.[].elementId'); do
+  # every <bpmn:boundaryEvent … attachedToRef="$el"> … </bpmn:boundaryEvent> block of the target
+  if printf '%s\n' "$target_xml" | sed -n "/<bpmn:boundaryEvent[^>]*attachedToRef=\"$el\"/,/<\/bpmn:boundaryEvent>/p" | grep -q "timerEventDefinition"; then
+    timer_hint="$timer_hint $el"
+  fi
+done
+
 # 4. identity mapping plan
 plan=$(jq -cn --arg t "$target_def" --argjson a "$active" --argjson ref "$(date +%s)" '{
   targetProcessDefinitionKey: $t,
@@ -91,6 +104,11 @@ echo "$active" | jq -r '.[] | "  \(.elementId)  \(.type)  incident=\(.hasInciden
 echo "request         POST /v2/process-instances/$KEY/migration"
 echo "$plan" | jq .
 echo "note: an incident on an active element is carried over and must be resolved after the migration (Retry in Operate)"
+if [ -n "$timer_hint" ]; then
+  echo "note: the target attaches a timer boundary event to:$timer_hint — the timer subscription is created on"
+  echo "      migration from the instance's current slaDeadline (already in the past = fires at once);"
+  echo "      for a demo edit slaDeadline in Operate first — docs/runbooks/sla-escalation.md"
+fi
 read -r -p "migrate? [y/N] " answer
 [ "$answer" = "y" ] || { echo "aborted"; exit 3; }
 
@@ -104,6 +122,7 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
   if [ "$v" = "$TARGET_VERSION" ]; then
     echo "instance $KEY now on $PROCESS_ID v$v (definition $(echo "$after" | jq -r .processDefinitionKey))"
     echo "next: resolve the incident, if any — Operate → Retry, or the API calls in docs/runbooks/migration.md §6"
+    [ -n "$timer_hint" ] && echo "next: the new timer on$timer_hint is armed — docs/runbooks/sla-escalation.md"
     exit 0
   fi
   sleep 1

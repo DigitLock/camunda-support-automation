@@ -1,6 +1,6 @@
 # E2E test: support-request-v1
 
-`send-tickets.sh` drives the eight tickets of `tickets.json` (the §8 set of
+`send-tickets.sh` drives the eight regular tickets of `tickets.json` (entries with `probeOnly: true` are skipped) (the §8 set of
 `docs/design/process-v1.md` plus T-1006/T-1007 from Phases 3–4 and the Russian refund
 ticket T-1008 from Phase 5.5) through the deployed process (bash + curl + jq). Ticket
 payloads and expectations live in `tickets.json`; the script contains no data.
@@ -59,6 +59,14 @@ export STAND_HOST=camunda-stand                 # --check queries classification
 make fault-on && ./send-tickets.sh --probe-outage   # A2: injected 503 on BK-81 (cancel) + BK-77 (change)
 ./send-tickets.sh --probe-classify       # A3b: with postgres stopped → audit write fails → incident
 ./send-tickets.sh --probe-timeout        # 6.2: BK-FAIL-TIMEOUT → client timeout → retries with backoff → incident (D6-10)
+
+# Phase 6.3 (process v10): T-1009 is probe-only (probeOnly: true in tickets.json — never part of
+# the default/manual/check runs). slaOverride "PT2M" replaces the DMN slaHours in the slaDeadline
+# mapping (D6-3), BK-UNKNOWN parks the ticket in handle-by-agent; after ~2 min the sla-timer
+# fires and sla.escalate raises the task to priority 90 / candidate group supervisors (D6-5).
+# The probe waits up to 4 min for that, prints the sla_escalation row (STAND_HOST), closes
+# the task, exits 0/1.
+./send-tickets.sh --probe-sla
 
 # operator view: ACTIVE incidents, then CREATED jobs older than 60 s that no worker ever
 # activated (deadline null) — the "worker is down" signal without monitoring (A3a)

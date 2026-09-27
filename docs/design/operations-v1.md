@@ -185,16 +185,24 @@ and the environment was wrong; migrate when the model was wrong".
 
 ### 4.1 Model change (process v10, owner — 6.3)
 
+**Verified on the stand 2026-09-26** (decision "C"): `--probe-sla` escalated the open task
+0.84 s after the deadline (priority 90, `supervisors`, `sla_escalation` row), the v9 → v10
+migration of a waiting task armed the timer from the current `slaDeadline`, and a later
+edit of the variable needed a modification to re-arm — `docs/runbooks/sla-escalation.md`.
+The D6-3 null-deadline path remains expected, not verified.
+
 - Non-interrupting **timer boundary event** `sla-timer` on `handle-by-agent`, time date
   `=slaDeadline`. v10 = v9 + this timer + the `slaOverride` mapping below; migrating a
   v9 instance that waits in `handle-by-agent` to v10 is the second migration case (D6-9):
   the waiting user task gains a timer subscription. The expression is evaluated when the task is entered; `slaDeadline` is
   plain ISO 8601 with a zone since v7 (D3-11), which is the format a time date needs.
-- Its outgoing flow ends in `end-sla-breached`; the boundary event carries the output
-  mapping `=true` → `slaBreached`. The token in `handle-by-agent` is untouched — the
-  agent still finishes the ticket, and the breach is a fact on the instance, visible in
-  Operate and in `support.ticket.resolved` (add `slaBreached: slaBreached` to the
-  `publish-resolved` payload).
+- Its outgoing flow runs the service task `escalate-sla` (job type `sla.escalate`, retries 3,
+  output mappings `slaBreached`, `escalatedAt`) and ends in `end-sla-escalated`
+  (decision "C", 2026-09-26). The worker raises the open agent task to priority 90 with
+  candidate group `supervisors` and records the breach in `sla_escalation`; the token in
+  `handle-by-agent` is untouched — the agent still finishes the ticket, and the breach is a
+  fact on the instance, visible in Operate and in `support.ticket.resolved`
+  (`slaBreached: slaBreached` in the `publish-resolved` payload).
 - `slaOverride` enters through the Kafka start event's `resultExpression` (add
   `slaOverride: value.slaOverride`; a missing key evaluates to `null`).
 - The `slaDeadline` output mapping on `route-ticket` becomes:
@@ -209,20 +217,22 @@ and the environment was wrong; migrate when the model was wrong".
     else s}.v
 ```
 
-  An unparsable override (`duration("2 minutes")` is `null`) falls back to the DMN value
-  instead of raising an incident. DMN `routing-v1` is unchanged; `slaHours` still reaches
-  the process scope, so analytics can compare the policy value with the effective deadline.
+  As deployed, v10 has **no fallback** for an unparsable override (owner decision
+  2026-09-26: `slaOverride` is a test knob) — see the deviation note in `process-v1.md`
+  (v9 → v10). DMN `routing-v1` is unchanged; `slaHours` still reaches the process scope,
+  so analytics can compare the policy value with the effective deadline.
 
 ### 4.2 Test input
 
-`tests/e2e/tickets.json` gets **T-1009**: `intent = other` (goes to `handle-by-agent`),
-`slaOverride = "PT2M"`, no booking. The unattended run completes the task immediately, so
-the timer never fires and the expected path is the v8 one plus nothing — the ticket is a
-regression guard for the override expression (`slaDeadline` within 2–3 minutes of the
-instance start, asserted by `--check`). The SLA demo itself is
-`send-tickets.sh --probe-sla`: publish T-1009, do **not** complete the task, wait for
-`sla-timer` to appear in the completed elements and `slaBreached = true`, then complete
-the task. Evidence: Operate showing the fired boundary event; `docs/assets/phase-6/`.
+`tests/e2e/tickets.json` gets **T-1009** (decision "C", 2026-09-26): `cancel_refund` on
+`bookingRef = BK-UNKNOWN`, `customerCurrency = TRY`, `slaOverride = "PT2M"`, marked
+`probeOnly: true` so the default, manual and check runs skip it (8/8 unchanged). The unknown
+booking is caught by the v9 `BOOKING_NOT_FOUND` boundary event, so the ticket waits in
+`handle-by-agent` deterministically; two minutes after routing the v10 `sla-timer` fires,
+`escalate-sla` runs `sla.escalate` and the open task gets priority 90 / candidate group
+`supervisors`. `send-tickets.sh --probe-sla` sends T-1009, waits up to 4 min for priority
+90 and `slaBreached = true`, prints the `sla_escalation` row and closes the task. Evidence:
+`docs/runbooks/sla-escalation.md`, `docs/assets/phase-6/d-*`.
 
 ## 5. Backup and restore (6.4)
 

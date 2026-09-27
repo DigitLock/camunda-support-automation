@@ -32,6 +32,11 @@
 #                                       incident on classify-ticket. Prints the key, exits.
 #   send-tickets.sh --incidents          lists ACTIVE incidents, then CREATED jobs older than
 #                                       60 s that no worker ever activated (A3a signal).
+#   send-tickets.sh --probe-sla          Phase 6.3 (process v10): sends T-1009 only (probeOnly,
+#                                       slaOverride PT2M, BK-UNKNOWN → handle-by-agent), waits
+#                                       up to 4 min for the task at priority 90 and
+#                                       slaBreached = true, prints the sla_escalation row (SSH),
+#                                       completes the task, exits 0/1.
 #
 # Env contract (same as workers/llm-classifier): CAMUNDA_BASE_URL, CAMUNDA_USER, CAMUNDA_PASSWORD.
 # --check additionally needs STAND_HOST (SSH alias) for the classification_review query.
@@ -79,13 +84,15 @@ poll() {
   return 1
 }
 
-ticket_ids() { jq -r '.[].ticketId' "$TICKETS_FILE"; }
+# probe-only tickets (probeOnly: true, e.g. T-1009 for --probe-sla) never take part in the
+# default, manual or check runs
+ticket_ids() { jq -r '.[] | select(.probeOnly != true) | .ticketId' "$TICKETS_FILE"; }
 ticket() { jq -c --arg id "$1" '.[] | select(.ticketId == $id)' "$TICKETS_FILE"; }
 
 # messageId in the payload is the dedup key of the Kafka start event connector (D4-5)
 ticket_payload() {
   ticket "$1" | jq -c --arg run "$RUN_ID" \
-    'del(.expected) + {runId: $run, messageId: (.ticketId + "-" + $run)}'
+    'del(.expected, .probeOnly) + {runId: $run, messageId: (.ticketId + "-" + $run)}'
 }
 
 produce_event() { # produce_event KEY JSON_PAYLOAD
@@ -582,6 +589,65 @@ list_incidents() {
     | sed 's/^/  /'
 }
 
+# ---- Phase 6.3: --probe-sla. T-1009 carries slaOverride = PT2M; on v9 its BK-UNKNOWN lands in
+# handle-by-agent through the BOOKING_NOT_FOUND boundary event, on v10 the sla-timer fires
+# two minutes after route-ticket and sla.escalate raises the task to priority 90 (D6-5).
+SLA_TICKET=T-1009
+SLA_TIMEOUT_SECONDS=240
+
+# task_priority INSTANCE_KEY -> "userTaskKey priority candidateGroups" of the open handle-by-agent task
+task_priority() {
+  api POST /user-tasks/search "$(jq -cn --arg k "$1" '{filter: {processInstanceKey: $k, elementId: "handle-by-agent", state: "CREATED"}}')" \
+    | jq -r '.items[0] | select(. != null) | "\(.userTaskKey) \(.priority) \(.candidateGroups | join(","))"'
+}
+
+# sla_row RUN_ID — the sla_escalation row over SSH (as check_classification_review); WARN without STAND_HOST
+sla_row() {
+  if [ -z "${STAND_HOST:-}" ]; then
+    echo "WARN: STAND_HOST not set — skipping the sla_escalation row"; return 0
+  fi
+  local sql row
+  sql="SELECT outcome, previous_priority, new_priority, user_task_key, sla_deadline, escalated_at
+       FROM sla_escalation WHERE ticket_id = '$SLA_TICKET' AND run_id = '$1' ORDER BY id DESC LIMIT 1;"
+  row=$(printf '%s\n' "$sql" | ssh "$STAND_HOST" \
+    'cd /opt/camunda-support-automation/infra && docker compose exec -T postgres sh -c '"'"'psql -q -tA -U "$POSTGRES_USER" -d "$POSTGRES_DB"'"'"'' \
+    | tail -n1)
+  if [ -z "$row" ]; then echo "FAIL sla: no sla_escalation row for $SLA_TICKET (runId $1)"; return 1; fi
+  echo "PASS sla: sla_escalation row (outcome|prev|new|taskKey|slaDeadline|escalatedAt): $row"
+}
+
+probe_sla() {
+  probe_run_id
+  local t key task task_key prio groups deadline breached expect_prio expect_group fails=0 state
+  t=$(ticket "$SLA_TICKET")
+  expect_prio=$(echo "$t" | jq -r '.expected.sla.taskPriority')
+  expect_group=$(echo "$t" | jq -r '.expected.sla.candidateGroup')
+  produce_event "$SLA_TICKET" "$(ticket_payload "$SLA_TICKET")"
+  echo "produced $SLA_TICKET (slaOverride $(echo "$t" | jq -r .slaOverride), bookingRef $(echo "$t" | jq -r .bookingRef), runId $RUN_ID)"
+  key=$(wait_for_instance "$SLA_TICKET") || exit 1
+  echo "$SLA_TICKET $key — waiting for handle-by-agent, then up to ${SLA_TIMEOUT_SECONDS}s for the SLA escalation"
+  task=$(poll task_priority "$key") || { echo "FAIL sla: no open handle-by-agent task on $key within ${TIMEOUT_SECONDS}s"; exit 1; }
+  echo "open task: $task (slaDeadline $(variable_value "$key" slaDeadline))"
+  deadline=$((SECONDS + SLA_TIMEOUT_SECONDS)); prio=""; breached=""; groups=""
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    task=$(task_priority "$key")
+    task_key=${task%% *}; prio=$(echo "$task" | awk '{print $2}'); groups=$(echo "$task" | awk '{print $3}')
+    breached=$(variable_value "$key" slaBreached)
+    if [ "$prio" = "$expect_prio" ] && [ "$breached" = "true" ]; then break; fi
+    sleep 5
+  done
+  if [ "$prio" = "$expect_prio" ]; then echo "PASS sla: task $task_key priority $prio (candidateGroups: ${groups:-none})"; else echo "FAIL sla: task priority '$prio', expected $expect_prio"; fails=$((fails+1)); fi
+  if [ "$breached" = "true" ]; then echo "PASS sla: slaBreached = true (escalatedAt $(variable_value "$key" escalatedAt))"; else echo "FAIL sla: slaBreached = '$breached'"; fails=$((fails+1)); fi
+  if echo "${groups:-}" | grep -q "$expect_group"; then echo "PASS sla: candidate group $expect_group"; else echo "FAIL sla: candidateGroups '${groups:-}' lacks $expect_group"; fails=$((fails+1)); fi
+  sla_row "$RUN_ID" || fails=$((fails+1))
+  # close the ticket so the instance finishes (the escalation never touches the agent's task)
+  api POST "/user-tasks/$task_key/completion" "$(echo "$t" | jq -c '{variables: .expected.userTask.variables}')" > /dev/null
+  echo "completed handle-by-agent for $SLA_TICKET (taskKey $task_key)"
+  if state=$(poll instance_state_if_done "$key"); then echo "PASS sla: instance $key $state"; else echo "FAIL sla: instance $key not finished within ${TIMEOUT_SECONDS}s"; fails=$((fails+1)); fi
+  [ "$fails" -eq 0 ] && { echo "probe-sla: all checks passed"; exit 0; }
+  echo "probe-sla: $fails check(s) failed"; exit 1
+}
+
 MODE=${1:-default}
 case "$MODE" in
   default)
@@ -611,6 +677,9 @@ case "$MODE" in
   --incidents)
     list_incidents
     ;;
+  --probe-sla)
+    probe_sla
+    ;;
   --check)
     if [ ! -f "$LAST_RUN_FILE" ]; then
       echo "error: $LAST_RUN_FILE not found — publish a run first" >&2; exit 1
@@ -621,6 +690,6 @@ case "$MODE" in
     check_classification_review
     ;;
   *)
-    echo "usage: $0 [--manual-user-tasks | --check | --probe-unknown-booking | --probe-booking-5xx | --probe-outage | --probe-classify | --probe-timeout | --incidents]" >&2; exit 2
+    echo "usage: $0 [--manual-user-tasks | --check | --probe-unknown-booking | --probe-booking-5xx | --probe-outage | --probe-classify | --probe-timeout | --incidents | --probe-sla]" >&2; exit 2
     ;;
 esac

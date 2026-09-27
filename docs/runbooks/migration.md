@@ -178,5 +178,14 @@ curl -sS -u "$CAMUNDA_USER:$CAMUNDA_PASSWORD" -X POST "$CAMUNDA_BASE_URL/v2/inci
 - **⊘ on an element means the element instance was terminated** (by the interrupting
   boundary event), not that the process instance was cancelled. The instance is green.
 - **Operate lags the engine.** New variables and the Migrated tag appear after a reload.
-- **Not covered here:** migrations that add or rename active elements, migrations of
-  instances waiting in a user task (v10, Phase 6.3), batch migration from the instance list.
+- **A redeployed form applies to new tasks only.** A user task resolves its linked form
+  when the task is created; tasks that are already open keep the form version they were
+  created with, migration included. Verified with `GET /v2/user-tasks/{key}/form` on an old
+  and a new task after the `handle-by-agent` form was redeployed with v10 (2026-09-26). To
+  give an open task the new form, complete it or cancel and resubmit the ticket.
+- **Timer boundary events on the target are subscribed at migration time from the
+  instance's current variables.** v9 → v10 on an instance waiting in `handle-by-agent`
+  armed `sla-timer` from the existing `slaDeadline` (the DMN value, next day); editing the
+  variable afterwards does not move the timer — `sla-escalation.md` §4–§5.
+- **Not covered here:** migrations that add or rename active elements, batch migration
+  from the instance list. A user task gaining a timer is in `sla-escalation.md` §4.

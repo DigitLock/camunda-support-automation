@@ -21,7 +21,7 @@ health=$(docker compose ps --format '{{.Name}} {{.Health}}' 2>/dev/null)
 echo "$health" | grep -q "^postgres healthy$" && ok "postgres container healthy" || bad "postgres container healthy (got: $(echo "$health" | grep '^postgres' || echo missing))"
 echo "$health" | grep -q "^worker-llm-classifier healthy$" && ok "worker-llm-classifier container healthy" || bad "worker-llm-classifier container healthy"
 
-for table in llm_audit classification_review; do
+for table in llm_audit classification_review sla_escalation; do
   exists=$(psql_c "$POSTGRES_USER" "$POSTGRES_DB" "select to_regclass('public.$table') is not null")
   [ "$exists" = "t" ] && ok "table $table exists" || bad "table $table exists (got '$exists')"
 done

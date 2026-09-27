@@ -1,13 +1,28 @@
 {
   "components": [
     {
-      "text": "**{{subject}}** — team {{team}}, priority {{priority}}",
+      "text": "**Escalation reason:** {{errorMessage}}",
       "type": "text",
       "layout": {
         "row": "Row_0bb2l0b",
         "columns": null
       },
-      "id": "Field_1a6k74l"
+      "id": "Field_1a6k74l",
+      "conditional": {
+        "hide": "=errorMessage = null"
+      }
+    },
+    {
+      "text": "⚠ **SLA breached** — escalated at {{if escalatedAt != null then escalatedAt else \"n/a\"}}",
+      "type": "text",
+      "layout": {
+        "row": "Row_0e950ls",
+        "columns": null
+      },
+      "id": "Field_0w94rvs",
+      "conditional": {
+        "hide": "=slaBreached != true"
+      }
     },
     {
       "label": "Agent note",

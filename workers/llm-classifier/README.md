@@ -1,7 +1,7 @@
 # LLM classifier worker (Phase 5)
 
-One Python process serving `ticket.classify`, `review.record`, `ticket.answer` and
-`ticket.notify` of `support-request-v1`. Formerly `workers/stub` (Phases 2–4); renamed in Phase 5 when the
+One Python process serving `ticket.classify`, `review.record`, `ticket.answer`,
+`ticket.notify` and (since Phase 6.3) `sla.escalate` of `support-request-v1`. Formerly `workers/stub` (Phases 2–4); renamed in Phase 5 when the
 LLM path arrived. Design and decisions: `docs/design/llm-classifier-v1.md`.
 
 Since 5.2 `ticket.classify` runs the real LLM path: `classifier.py` orchestrates the
@@ -74,3 +74,4 @@ is database-only and lives entirely in `worker.py` + `audit.py`.
 | `review.record` | `{}` — inserts a `classification_review` row: `reviewed_by` (`reviewedBy`, `unknown` if empty), `final_intent`/`final_sentiment`/`escalated` from the form, `llm_intent`/`llm_sentiment` from `llm_audit`; write failure fails the job (D5-3) |
 | `ticket.answer` | `answerText` (grounded in the KB, reply language per D5-8), `answerSource` (`llm`\|`fallback`), `answerKbIds` (cited sections; `["KB-11"]` = handover to an agent); audit row `job_type=answer` |
 | `ticket.notify` | `customerMessage`, `messageLanguage`, `notifySource` (`llm`\|`fallback`) from the LLM, plus the deterministic `notificationTemplate` = `notify-<resolution>` and `notifiedAt`; delivery is a `deliver ticketId=…` log line (D5-5); audit row `job_type=notify` |
+| `sla.escalate` (6.3, `sla.py`) | `slaBreached: true`, `escalated` (bool), `escalatedAt` (`2026-09-26T19:32:49.751Z` — same shape as `slaDeadline`; `null` unless a PATCH was made — the v10 output mapping reads it unconditionally), `escalatedTaskKey`. Searches the open `handle-by-agent` task of the instance (`POST /v2/user-tasks/search`); if found and below priority 90: `PATCH /v2/user-tasks/{key}` with `{changeset: {priority: 90, candidateGroups: ["supervisors"]}, action: "sla-escalation"}`; already at 90 → no second PATCH; no open task → nothing to escalate. Every outcome writes an `sla_escalation` row (outcome `escalated` / `already_escalated` / `no_open_task`; write failure fails the job, D5-3). Transport errors and 5xx → fail with `retries - 1` and a 10 s backoff; 4xx → fail with `retries = 0` (request bug, incident at once). The table is created at startup with `CREATE TABLE IF NOT EXISTS` (same DDL as `infra/postgres/init/002_sla_escalation.sql`) |

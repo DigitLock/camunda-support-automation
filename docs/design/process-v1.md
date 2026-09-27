@@ -345,6 +345,44 @@ The eight e2e tickets behave identically on v9 (8/8 + dedup, 2026-09-26). The SL
 
 *Operate — process v9: "Booking not found" boundary events on Change booking and Cancel and refund; the two migrated instances wait in Handle by agent (⊘2 on Cancel and refund = element instances terminated by the interrupting event).*
 
+### v9→v10 (Phase 6.3)
+
+Modelled by the owner, decision "C" of 2026-09-26 (D6-3, D6-5, D6-9 in `operations-v1.md`),
+**verified on the stand the same day** (`docs/runbooks/sla-escalation.md`). DMN unchanged. Changes:
+
+| Element | Type | Details |
+|---|---|---|
+| `sla-timer` "SLA deadline" | non-interrupting timer boundary event (`cancelActivity="false"`) on `handle-by-agent` | `timeDate = slaDeadline`, evaluated when the task is entered; outgoing `Flow_0dnrh6m` |
+| `escalate-sla` "Escalate SLA" | service task | job type `sla.escalate`, `retries="3"`; output mappings `=slaBreached` → `slaBreached`, `=escalatedAt` → `escalatedAt` (the worker always returns both, `escalatedAt` is `null` unless a PATCH was made); outgoing `Flow_140qkfl` |
+| `end-sla-escalated` "SLA escalated" | end event | ends the escalation token; the agent task keeps running |
+| `start-ticket-created` | Kafka start event | result expression gains `slaOverride: value.slaOverride` (missing key → `null`) |
+| `route-ticket` | output mapping `slaDeadline` | see below |
+| `publish-resolved` | Kafka payload | gains `slaBreached: slaBreached` (`null` when the timer never fired) |
+
+The `slaDeadline` mapping as deployed:
+
+```feel
+{s: string(if is defined(slaOverride) and slaOverride != null
+           then now() + duration(slaOverride)
+           else now() + duration("PT" + string(routing.slaHours) + "H")),
+ v: if contains(s, "[") then substring before(s, "[")
+    else if contains(s, "@") then substring before(s, "@") + "Z"
+    else s}.v
+```
+
+**Deviation from D6-3, accepted 2026-09-26:** there is no fallback to `slaHours` for an
+unparsable override — `slaOverride` is a test knob, not a business input. FEEL `duration()`
+on an unparsable string yields `null` (not an error), so `slaDeadline` becomes `null` and the
+incident surfaces where the time date is evaluated (activation of `handle-by-agent`), not on
+`route-ticket` — expected, not verified in this phase.
+
+Worker side: `sla.escalate` in `workers/llm-classifier/sla.py` (priority 90 + candidate group
+`supervisors` on the open task, `sla_escalation` audit row, D6-5). Test input: T-1009
+(`probeOnly`, `slaOverride = PT2M`, `BK-UNKNOWN` → `handle-by-agent` via the v9 boundary
+event), driven by `tests/e2e/send-tickets.sh --probe-sla`. Migration v9 → v10 of an instance
+waiting in `handle-by-agent` is the second migration case (D6-9): the timer subscription is
+created from the instance's current `slaDeadline` — `docs/runbooks/sla-escalation.md`.
+
 ## 12. Decisions
 
 | # | Decision | Rationale |

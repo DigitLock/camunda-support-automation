@@ -306,5 +306,36 @@
         ]
       }
     }
+  },
+  {
+    "ticketId": "T-1009",
+    "customerId": "C-1009",
+    "customerTier": "standard",
+    "subject": "Cancel my booking and refund",
+    "body": "I cannot travel anymore. Please cancel my booking and refund the full amount to my card.",
+    "language": "en",
+    "bookingRef": "BK-UNKNOWN",
+    "bookingValue": 100.0,
+    "currency": "EUR",
+    "customerCurrency": "TRY",
+    "slaOverride": "PT2M",
+    "probeOnly": true,
+    "expected": {
+      "note": "probe-only (--probe-sla, Phase 6.3): skipped by the default, manual and check runs. BK-UNKNOWN is caught by the v9 BOOKING_NOT_FOUND boundary event, so the ticket waits in handle-by-agent deterministically; slaOverride PT2M makes the v10 sla-timer fire two minutes after routing.",
+      "path": null,
+      "resolution": "agent_handled",
+      "userTask": {
+        "elementId": "handle-by-agent",
+        "variables": {
+          "agentNote": "closed by --probe-sla after the escalation"
+        }
+      },
+      "routing": null,
+      "sla": {
+        "taskPriority": 90,
+        "candidateGroup": "supervisors",
+        "slaBreached": true
+      }
+    }
   }
 ]
