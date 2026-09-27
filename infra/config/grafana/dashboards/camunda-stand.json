@@ -396,7 +396,7 @@
       "id": 8,
       "type": "timeseries",
       "title": "Exporter lag (records)",
-      "description": "Committed minus exported log position. Grows while exporting is paused (backup) or Elasticsearch is slow; should return to ~0.",
+      "description": "max(0, last processed position - last updated (acknowledged) exporter position) per partition, the same definition backup.sh waits on before the soft-pause (runbook backup-restore.md §6, mitigation A). In sync means updated >= processed, not equality: the updated position normally runs ahead of the processed one by the follow-up events of the last command, hence the clamp. Grows while exporting is paused (backup) or Elasticsearch is slow; should return to 0.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -432,7 +432,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max by (partition) (zeebe_log_appender_last_committed_position) - on (partition) max by (partition) (zeebe_exporter_last_exported_position)",
+          "expr": "clamp_min(max by (partition) (zeebe_stream_processor_last_processed_position) - on (partition) max by (partition) (zeebe_exporter_last_updated_exported_position{exporter=\"camundaexporter\"}), 0)",
           "legendFormat": "partition {{partition}}"
         }
       ]

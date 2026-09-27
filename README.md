@@ -5,6 +5,9 @@ answer/notify, two-layer schema validation, number grounding, keyword/template f
 review loop with recorded corrections, PostgreSQL audit); process v8, DMN v3, e2e 8/8 over
 Kafka incl. the Russian refund ticket, negative probe raises an incident (run 20260925T142455Z).
 Acceptance against the plan: [docs/backlog.md](docs/backlog.md#phase-5-acceptance-against-the-plan).
+Phase 6 in progress — 6.1–6.4 done 2026-09-27: incident scenarios, instance migration, SLA
+escalation, backup/restore rehearsed in three round-trips, patch upgrade rehearsed on the lab;
+6.5 monitoring and phase acceptance left.
 
 Phase 2 — process `support-request-v1` at version 3 (v1 happy path; v2 misrouted
 at a single gateway; v3 with a separate needs-review gateway, see
@@ -111,7 +114,7 @@ docs/               Design, ops guides, runbooks, analytics, ADRs
 | 3 | DMN + FEEL | done |
 | 4 | Integrations | done |
 | 5 | LLM classifier with guardrails | done ([acceptance](docs/backlog.md#phase-5-acceptance-against-the-plan)) |
-| 6 | Operations | in progress — [design and plan](docs/design/operations-v1.md) |
+| 6 | Operations | in progress — 6.1–6.4 done 2026-09-27; 6.5 monitoring and phase acceptance left ([design and plan](docs/design/operations-v1.md)) |
 | 7 | Docs & analytics | planned |
 | 8 | Publication | planned |
 
@@ -123,6 +126,7 @@ One line per day: date — phase — done / broken / next.
 - 2026-09-22 — Phase 1 done — install-from-scratch run against docs/ops/install.md passed in <N> min; one doc gap (ssh config block was not a command) fixed / stand broke overnight before the run was finished (restarted from the clean snapshot) / Phase 2: process v1 happy path
 - 2026-09-24 — Phase 4 done — Kafka in/out via Connectors (messageId dedup, TTL PT1H), FX conversions via REST connectors, Go booking worker, workers as containers; process v6, DMN v3; e2e 7/7 over Kafka incl. dedup probe / v5 shipped without output mappings on branch tasks — convert-refund incident, fixed in v6 (D4-6) / Phase 5: LLM classifier
 - 2026-09-25 — Phase 5 done — Haiku classify with guardrails (35/35 on the 40-ticket set, threshold 0.8), review loop re-routes and records corrections (v7), Sonnet answer/notify grounded in the KB with number grounding (v8), audit in PostgreSQL; e2e 7/7 → 8/8 with the Russian refund ticket / D4-6 hit twice more (user task v7, answer task v8) — rule of thumb in process-v1.md §11; first 5.5 run: T-1008 looped silently on cancel-refund — the Go worker threw BPMN errors to `/jobs/{key}/errors` (404, path is singular) and swallowed the failure; fixed, a failed lifecycle call now raises an incident (install.md) / Phase 6: operations (incidents, migration, backup, upgrade, monitoring) — scenario B input ready (`--probe-unknown-booking`)
+- 2026-09-27 — Phase 6.4 done — backup/restore to local disk (`backup.sh`, `restore.sh`, `verify-state.sh`), three round-trips on the stand; patch upgrade 8.9.19 → 8.9.21 rehearsed on the lab with three waiting instances resumable / first restore lost `startDate` on eight instances finished shortly before the backup (snapshot intact, loss after `bin/restore`) — exporter-sync wait added before the soft-pause, not reproduced in the two following round-trips, cause stays a hypothesis (runbook §6); a wrong owner on the Zeebe backup path left partition 1 leaderless behind a `healthy` container; first restore stopped on the snapshot repository lost with the volume (script fixed) / 6.5 monitoring profile, worker user, password rotation
 
 ## Run the e2e
 

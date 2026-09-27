@@ -21,7 +21,7 @@ published outside the lab network except Grafana on port 3000.
 | Incidents, scenario A | Three reproducible incident cases, resolved in place: A1 data (`BK-FAIL-500`), A2 downstream outage (booking-api fault toggle), A3 configuration (classifier database) — worker backoff, structured failure messages, probes and `--incidents` in the e2e script | 6.1 |
 | Incidents, scenario B | Error boundary events for `BOOKING_NOT_FOUND` (process v9), the live incident resolved by **instance migration** v8 → v9; timeout handling | 6.2 |
 | SLA | Timer boundary on `handle-by-agent` fires at `slaDeadline`; `slaOverride` makes the demo run in minutes | 6.3 |
-| Backup / restore, upgrade | ES snapshot repository + orchestration backup store on the VM's local disk, one full backup and restore rehearsed; patch upgrade of the main stand under a runbook, minor upgrade 8.8 → 8.9 rehearsed on `upgrade-lab` (ADR-002) | 6.4 |
+| Backup / restore, upgrade | ES snapshot repository + orchestration backup store on the VM's local disk, backup and restore rehearsed (three round-trips); patch upgrade of the main stand under a runbook, the patch path 8.9.19 → 8.9.21 rehearsed on `upgrade-lab`; the minor path 8.8 → 8.9 is not rehearsed (ADR-002's 8.8 lab superseded, `docs/lessons-learned.md`) | 6.4 |
 | Monitoring, least privilege | `monitoring` compose profile (Prometheus + Grafana, alert `incidents > 0`); dedicated `worker` user with scoped authorizations; password rotation on the running cluster | 6.5 |
 | Acceptance | Runbooks executed once each from the doc, screenshots, traceability | 6.6 |
 
@@ -64,7 +64,7 @@ Go services is a Phase 7 idea (`docs/backlog.md`).
 | `zeebe_incident_events_total{action}` | counter (`created`, `resolved`) | incident rate, shows scenarios A/B happening |
 | `zeebe_job_events_total{action,type}` | counter | worker activity per job type (`activated`, `completed`, `failed`, `error thrown`) |
 | `zeebe_element_instance_events_total{action,type}` | counter | process instances completed per minute |
-| `zeebe_exporter_last_exported_position`, `zeebe_log_appender_last_committed_position` | gauges | exporter lag = committed − exported; grows when ES is slow or exporting is paused (backup, §5) |
+| `zeebe_stream_processor_last_processed_position`, `zeebe_exporter_last_updated_exported_position{exporter="camundaexporter"}` | gauges, per partition | exporter lag = max(0, processed − updated); the updated (acknowledged) position normally runs ahead of the processed one by the follow-up events of the last command, so "in sync" is `updated ≥ processed`, not equality. Grows when ES is slow or exporting is paused (backup, §5); `backup.sh` waits for lag 0 before pausing (`docs/runbooks/backup-restore.md` §6, mitigation A) |
 | `jvm_memory_used_bytes{area}` | gauge | heap vs the 2 GiB `-Xmx` |
 | `up{job="orchestration"}` | scrape health | target-down alert |
 
@@ -242,21 +242,25 @@ Both stores live on the VM, on the same NVMe the volumes use:
 
 | Store | Config | Path (bind mount) |
 |---|---|---|
-| ES snapshot repository `camunda` (type `fs`) | `path.repo` on the `elasticsearch` service, repository registered once with `PUT /_snapshot/camunda` | `/var/backups/camunda/elasticsearch` |
-| Orchestration backup store | `camunda.data.primary-storage.backup.store: FILESYSTEM`, `camunda.data.primary-storage.backup.filesystem.base-path` (unified configuration, 8.9 property reference, verified 2026-09-25) | `/var/backups/camunda/orchestration` |
-| Web-apps (secondary storage) backup | `camunda.backup.webapps.enabled: true` (currently `false` from the distribution default), `camunda.data.backup.repository-name: camunda` | inside the ES repository |
+| ES snapshot repository `camunda` (type `fs`) | `path.repo` on the `elasticsearch` service, repository registered once with `PUT /_snapshot/camunda` (`tests/ops/backup.sh`) | `/srv/camunda-backups/es` |
+| Orchestration backup store | `camunda.data.primary-storage.backup.store: FILESYSTEM`, `camunda.data.primary-storage.backup.filesystem.base-path` (unified configuration, 8.9 broker reference; **confirmed on the stand 2026-09-27**, no fallback needed; the host path must be owned by uid 1001) | `/srv/camunda-backups/zeebe` |
+| Web-apps (secondary storage) backup | `camunda.backup.webapps.enabled: true` (was `false`, the distribution default), `camunda.data.secondary-storage.elasticsearch.backup.repository-name: camunda` (the docs' `camunda.data.backup.repository-name` is logged as legacy — observed 2026-09-27) | inside the ES repository |
+| PostgreSQL audit (`llm_audit`, `classification_review`, `sla_escalation`) | `pg_dump -Fc` in the same window (`tests/ops/pg-backup.sh`) | `/srv/camunda-backups/pg` |
 
 The property names differ from the 8.8 docs (`camunda.data.backup.*` vs
 `camunda.data.primary-storage.backup.*`); the 8.9 reference is the source, and the first
-deploy in 6.4 confirms them against the startup log.
+deploy in 6.4 confirmed them against the startup log (`FilesystemBackupStore created`).
 
 **Stated limitation:** a backup on the same disk as the data protects against operator
 mistakes, bad deployments and the restore rehearsal — not against losing the VM. Copying
-`/var/backups/camunda` off-host is a `rsync` line the runbook mentions and this project
-does not automate.
+`/srv/camunda-backups` off-host is a `rsync` line the runbook mentions and this project
+does not automate. Kafka (KRaft) is not backed up — its topics are transient (D4-5 dedup, TTL 1 h).
 
 ### 5.2 Procedure (order is mandatory — 8.9 backup guide)
 
+0. wait until the exporter has acknowledged every processed record on every partition
+   (`wait_exporter_sync` in `tests/ops/_lib.sh`, metrics from `:9600/actuator/prometheus`;
+   runbook §6, mitigation A) — abort instead of pausing behind a lagging exporter
 1. `POST :9600/actuator/exporting/pause?soft=true`
 2. `POST :9600/actuator/backupHistory {"backupId": N}` → poll `GET …/backupHistory/N` until `COMPLETED`
 3. `PUT :9200/_snapshot/camunda/camunda_zeebe_records_backup_N?wait_for_completion=true {"indices": "zeebe-record*", "feature_states": ["none"]}`
@@ -264,31 +268,45 @@ does not automate.
 5. `POST :9600/actuator/exporting/resume`
 
 `N` is an integer greater than every previous backup id (`date +%s`). The management port
-is not published, so the runbook runs the calls from inside the Compose network
-(`docker compose exec orchestration curl …`) and wraps them in `tests/ops/backup.sh`.
-Restore (`tests/ops/restore.sh`): stop everything but Elasticsearch, delete the indices,
-restore every snapshot of `N`, run the restore app of the **same image version**
-(`camunda/bin/restore --backupId=N` with `ZEEBE_RESTORE_FROM_BACKUP_ID`) against an empty
-`camunda` volume, start the stack. Acceptance: instances started before the backup are
-visible in Operate after the restore; the exporter lag panel shows the pause.
+is not published, so the scripts run the calls from inside the Compose network — curl in
+the `elasticsearch` container, the orchestration image has none (`es_curl` / `mgmt` in
+`tests/ops/_lib.sh`) — wrapped in `tests/ops/backup.sh`. Step 3 runs only when
+`zeebe-record*` indices exist (they do not with the Camunda Exporter); an extra snapshot
+`camunda_dated_N` of the day-suffixed indices is taken as well (runbook §1, decision pending
+in the backlog). Restore (`tests/ops/restore.sh`): stop everything but Elasticsearch, delete
+the indices, restore every snapshot of `N`, run the restore app of the **same image
+version** (`bin/restore --backupId=N` under `SPRING_PROFILES_ACTIVE=restore`, same
+`application.yaml`) against an empty `camunda` volume, start the stack. Acceptance:
+instances started before the backup are visible in Operate after the restore with their
+`startDate` (`tests/ops/verify-state.sh` newest-instance lines); the exporter lag panel
+shows the pause.
+
+Rehearsed 2026-09-27 in three round-trips: backup 1790507500 (restore on the third run
+after two script gaps) succeeded end to end with one integrity finding — instances completed
+minutes before the backup came back without `startDate`, snapshot intact; backups
+1790534421 and 1790535095, taken with the exporter-sync wait in place, restored complete.
+The finding is recorded at the confidence the runs support — not reproduced in 2 of 2 clean
+round-trips, the wait never had to hold, the mechanism a hypothesis — in the runbook §6.
 
 Runbook: `docs/runbooks/backup-restore.md`.
 
 ## 6. Upgrade (6.4)
 
-- **Patch upgrade of the main stand** (8.9.21 → the newest 8.9.x at the time of 6.4, or a
-  rehearsed no-op if none exists): backup (§5) → change `CAMUNDA_VERSION` /
-  `CAMUNDA_CONNECTORS_VERSION` in `.env` → `make deploy` → verification block from
-  `install.md` → e2e 9/9. Rollback = restore the backup with the old image.
-- **Minor upgrade rehearsal** on `infra/upgrade-lab/` (ADR-002): a second Compose project
-  (`upgrade-lab`, own network and volumes, ports 18080/19200) starts on 8.8.x with the
-  8.8 configuration keys, deploys process v9 and starts instances that wait in user
-  tasks, then upgrades to 8.9.21 — the lab exists to see the unified-configuration
-  remapping and the exporter/index migration on real data before the main stand ever
-  needs it. Memory: the lab runs **only while the main stand's workers and Kafka are
-  stopped** (`docker compose stop` on the `integrations`/`workers` profiles); 16 GiB is not
-  enough for two full stacks.
-- Runbook: `docs/runbooks/upgrade.md` (pre-checks, order, verification, rollback).
+- **Patch upgrade of the main stand**: procedure in `docs/ops/upgrade.md` — pre-checks,
+  backup (§5), Proxmox snapshot, pin change in `.env` (`CAMUNDA_VERSION`,
+  `CAMUNDA_CONNECTORS_VERSION`; Elasticsearch untouched), `make deploy`, verification
+  block from `install.md`, e2e 8/8; rollback = pin back and, if needed, restore the
+  pre-upgrade backup on the old pin. **No newer 8.9.x exists** (2026-09-27: 8.9.21 and
+  connectors 8.9.12 are the newest tags; 8.9.20 was never published), so the main stand
+  is not upgraded in this phase.
+- **Patch path rehearsed on the lab instead** (`infra/upgrade-lab/`, `tests/ops/upgrade-lab.sh`):
+  the same compose file under project `camunda-lab`, port 18080, data under
+  `/srv/camunda-lab`, pinned to 8.9.19 + connectors 8.9.10; deploy the models, start three
+  instances that wait at `classify-ticket`, re-pin to 8.9.21, `up -d`, verify the topology,
+  the instances and that their jobs are still activatable. Only `elasticsearch` and
+  `orchestration` run in the lab, and only while the main stand is stopped (16 GiB).
+- **Minor upgrade 8.8 → 8.9 is not rehearsed** — `docs/lessons-learned.md`. ADR-002's
+  8.8 lab is superseded by the patch-path lab above.
 
 ## 7. Least privilege and rotation (6.5)
 

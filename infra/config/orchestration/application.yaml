@@ -8,7 +8,9 @@
 camunda:
   backup:
     webapps:
-      enabled: false
+      # web-apps (Operate/Tasklist) backup through POST :9600/actuator/backupHistory
+      # (Phase 6.4). The snapshot repository name is camunda.data.backup.repository-name.
+      enabled: true
   system:
     cpu-thread-count: "3"
     io-thread-count: "3"
@@ -36,11 +38,26 @@ camunda:
           users:
             - "connectors"
   data:
+    # Zeebe partition backup store — 8.9 unified keys, confirmed on the stand 2026-09-27
+    # (startup log: FilesystemBackupStore created; GET :9600/actuator/backupRuntime answers
+    # a list). The base path is the bind mount in docker-compose.yml and MUST be writable by
+    # uid 1001 — a wrong owner leaves partition 1 INACTIVE while the container stays healthy
+    # (docs/ops/install.md, Troubleshooting).
+    primary-storage:
+      backup:
+        store: FILESYSTEM
+        filesystem:
+          base-path: /usr/local/camunda/backup
     secondary-storage:
       type: elasticsearch
       elasticsearch:
         url: http://elasticsearch:9200
         number-of-replicas: 0
+        # Elasticsearch snapshot repository used by the web-apps backup (backupHistory).
+        # 8.9 key; the docs' camunda.data.backup.repository-name is logged as legacy
+        # (observed 2026-09-27). Registered by tests/ops/backup.sh / restore.sh (ensure_repo).
+        backup:
+          repository-name: camunda
   mcp:
     enabled: true
 # Prometheus scrape endpoint on the management port (9600, not published; scraped by the

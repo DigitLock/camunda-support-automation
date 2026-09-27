@@ -35,6 +35,10 @@ services:
     volumes:
       - camunda:/usr/local/camunda/data
       - ./config/orchestration/application.yaml:/usr/local/camunda/config/application.yaml
+      # Zeebe backup store (FILESYSTEM, Phase 6.4 / ADR-008): a host bind mount, never a
+      # docker volume — the backup must survive `docker compose down -v`. Host dir owned by
+      # uid 1001 (the camunda user of the image — NOT 1000); see docs/ops/install.md.
+      - /srv/camunda-backups/zeebe:/usr/local/camunda/backup
     networks:
       - camunda
     depends_on:
@@ -78,6 +82,8 @@ services:
       - discovery.type=single-node
       - xpack.security.enabled=false
       - "ES_JAVA_OPTS=-Xms2g -Xmx2g"
+      # snapshot repository location (Phase 6.4): registered once as `camunda`, type fs
+      - path.repo=/usr/share/elasticsearch/backup
     ulimits:
       memlock:
         soft: -1
@@ -92,6 +98,7 @@ services:
       start_period: 60s
     volumes:
       - elastic:/usr/share/elasticsearch/data
+      - /srv/camunda-backups/es:/usr/share/elasticsearch/backup
     networks:
       - camunda
 
@@ -205,6 +212,8 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./postgres/init:/docker-entrypoint-initdb.d:ro
+      # pg_dump target (tests/ops/pg-backup.sh); host dir owned by uid 70 (postgres, alpine)
+      - /srv/camunda-backups/pg:/backups
     networks:
       - camunda
 

@@ -27,3 +27,4 @@ venv/
 *.log
 workers/stub/.env
 tests/e2e/.last-run
+infra/upgrade-lab/.env.lab

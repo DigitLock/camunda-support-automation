@@ -58,6 +58,22 @@ systemctl enable --now fstrim.timer
 timedatectl set-timezone UTC
 ```
 
+Backup directories (Phase 6.4, ADR-008): host bind mounts, never docker volumes, so a
+`docker compose down -v` cannot take the backups with the data. Owners are the container
+users, **confirmed on the stand 2026-09-27**: uid **1001** for `camunda/camunda` (the
+`camunda` user), uid 1000 for `elasticsearch`, uid 70 for `postgres:alpine`.
+
+```bash
+mkdir -p /srv/camunda-backups/es /srv/camunda-backups/zeebe /srv/camunda-backups/pg
+chown 1000:1000 /srv/camunda-backups/es
+chown 1001:1001 /srv/camunda-backups/zeebe
+chown 70:70 /srv/camunda-backups/pg
+```
+
+The directory is root-owned, so the deploy user cannot write there (`tee` to it fails);
+script logs go to `/tmp`. `pg_dump` runs as root inside the postgres container, so the dump
+files are `root:root` — normal.
+
 ## Sync setup
 
 The repository is synced from the workstation, not cloned on the VM. As root on the VM
@@ -206,6 +222,31 @@ What to look at:
 - Prometheus is not published. Query it through Grafana → Explore, or on the VM with
   `docker compose exec prometheus wget -qO- 'http://localhost:9090/api/v1/query?query=sum(zeebe_pending_incidents_total)'`.
 - The scraped endpoint: `docker compose exec orchestration curl -sS http://localhost:9600/actuator/prometheus | grep zeebe_pending_incidents_total`.
+
+## Backups
+
+Phase 6.4 turns on the three backup stores (`docs/design/operations-v1.md` §5, runbook
+`docs/runbooks/backup-restore.md`): the Elasticsearch snapshot repository `camunda`
+(`path.repo` on the `elasticsearch` service, registered by `tests/ops/backup.sh`), the
+Zeebe `FILESYSTEM` backup store and the web-apps backup in `application.yaml`, and
+`pg_dump` for PostgreSQL. All three write to `/srv/camunda-backups/{es,zeebe,pg}` on the
+host (created in VM preparation). The deploy that introduces them restarts `orchestration`
+and `elasticsearch`:
+
+```bash
+# from the workstation
+make deploy
+# on the VM, in infra/ — FIRST the writability checks (see Troubleshooting: a wrong owner
+# on the Zeebe backup path leaves the partition without a leader while the container is
+# "healthy"), THEN recreate the two services explicitly
+../tests/smoke/phase-6-backup.sh          # the three "dir writable" lines must PASS
+docker compose up -d --force-recreate orchestration elasticsearch
+../tests/smoke/phase-6-backup.sh          # topology 200, backupRuntime answers a list, repository present
+```
+
+After **any** change to the backup keys, check that `GET :9600/actuator/backupRuntime`
+answers a JSON list — the smoke does it. "healthy" in `docker compose ps` means the
+management port answers, not that a partition has a leader.
 
 ## Before publishing
 
@@ -373,6 +414,34 @@ Symptom → cause → fix entries are added here the moment something breaks dur
   excludes `.env.bak*` from the sync (dry run verified: `.env.example` is still
   transferred, `.env` and `.env.bak*` are left alone) — but a backup that lives next to the
   file it backs up is still on the wrong disk; the exclude only prevents the accident.
+- **Symptom:** after enabling the Zeebe `FILESYSTEM` backup store, the `orchestration`
+  container is `healthy`, but the REST API answers "partition 1 is currently INACTIVE with
+  no leader" and nothing is processed; the log shows
+  `AccessDeniedException: /usr/local/camunda/backup/contents` and
+  `Failed to install partition 1`. Seen 2026-09-27; the stand was leaderless for about
+  70 minutes before the cause was found.
+  **Cause:** the bind-mounted backup path was owned by uid 1000, but the `camunda/camunda`
+  image runs as uid **1001**; the broker could not create the store's directory and refused
+  to install the partition. The healthcheck only probes the management port.
+  **Fix:** `chown 1001:1001 /srv/camunda-backups/zeebe` (root), then
+  `docker compose up -d --force-recreate orchestration`. Rule: run the writability checks
+  of `tests/smoke/phase-6-backup.sh` **before** recreating with new backup keys, and treat
+  `GET :9600/actuator/backupRuntime` answering a list as the proof that the store works.
+- **Symptom:** `tests/ops/restore.sh` fails in the snapshot step with `jq: error Cannot
+  iterate over null`; `GET /_snapshot/camunda/_all` is 404 on the freshly started
+  Elasticsearch.
+  **Cause:** the snapshot repository is cluster state stored in the `elastic` volume, which
+  the restore removes on purpose; the files under `/srv/camunda-backups/es` are intact, the
+  registration is gone.
+  **Fix:** `restore.sh` re-registers and verifies the repository right after the clean start
+  (`ensure_repo` in `tests/ops/_lib.sh`) and lists the set's snapshots from the repository,
+  not from `backupHistory` (the cluster is stopped at that point). Seen on the first
+  rehearsal 2026-09-27.
+- **Symptom:** the orchestration log says the backup repository key is legacy.
+  **Cause:** the 8.9 backups concept page still names `camunda.data.backup.repository-name`;
+  the current key is `camunda.data.secondary-storage.elasticsearch.backup.repository-name`.
+  **Fix:** the new key in `application.yaml` (the legacy one keeps working, with the warning).
+  The Zeebe keys `camunda.data.primary-storage.backup.*` work as documented.
 - **Symptom:** the API still answers 200 without credentials after enabling protection.
   **Cause:** the config was edited on the workstation but not synced to the VM; Compose
   restarted the old files.

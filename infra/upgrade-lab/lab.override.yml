@@ -1,0 +1,29 @@
+# Upgrade lab (Phase 6.4, design §6): the SAME compose file under a separate project name,
+# ports and data directories, so a patch upgrade can be rehearsed on real instances while
+# the main stand is stopped (16 GiB is not enough for two stacks). Only elasticsearch and
+# orchestration run in the lab; connectors is pinned in .env.lab but not started (no Kafka
+# in the lab — the inbound connector would only log connection errors).
+#
+#   cd infra
+#   docker compose -p camunda-lab --env-file upgrade-lab/.env.lab \
+#     -f docker-compose.yml -f upgrade-lab/lab.override.yml up -d elasticsearch orchestration
+#
+# Driven by tests/ops/upgrade-lab.sh. Data lives under /srv/camunda-lab (bind mounts):
+# camunda + backups/zeebe owned by uid 1001, elastic + backups/es by uid 1000 (docs/ops/upgrade.md)
+services:
+  orchestration:
+    container_name: lab-orchestration
+    ports: !override
+      - "18080:8080"
+    volumes: !override
+      - /srv/camunda-lab/camunda:/usr/local/camunda/data
+      - ./config/orchestration/application.yaml:/usr/local/camunda/config/application.yaml
+      - /srv/camunda-lab/backups/zeebe:/usr/local/camunda/backup
+  elasticsearch:
+    container_name: lab-elasticsearch
+    volumes: !override
+      - /srv/camunda-lab/elastic:/usr/share/elasticsearch/data
+      - /srv/camunda-lab/backups/es:/usr/share/elasticsearch/backup
+networks:
+  camunda:
+    name: camunda-lab
