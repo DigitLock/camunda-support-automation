@@ -57,8 +57,54 @@ as root in the container, normal). On disk: `es` 17 MB, `zeebe` 129 MB, `pg` 32 
 step 0b): `wait_exporter_sync` logged `exporter lag = 0 on all partitions (waited 0s)` both
 times — the stand was idle, the wait never had to hold. Run logs `state-before-2.txt` and
 `backup-2.log` (round-trip #2; raw run output kept on the VM, not in the repository). Two
-more backups exist on disk without a restore (1790533211, 1790534841, taken without fresh
-instances; harmless).
+more backups were taken without a restore (1790533211, 1790534841, without fresh instances).
+All four sets of this day except 1790535095 were removed on 2026-09-28 (§2.1).
+
+### 2.1 Retention
+
+Backups stay on the VM's disk (ADR-008) and nothing expires them. `tests/ops/delete-backup.sh`
+lists and removes whole sets through the official APIs — never with `rm` inside
+`/srv/camunda-backups/es` or `/zeebe`:
+
+```bash
+tests/ops/delete-backup.sh --list                 # one line per set: web-apps parts n/m, dated, Zeebe state, pg; INCOMPLETE when a part is missing
+tests/ops/delete-backup.sh <backupId> --dry-run   # what would be removed, nothing changes
+su -                                              # deletion runs as root, see below
+tests/ops/delete-backup.sh <backupId>             # removes the set, then prints the remaining sets
+```
+
+Deletion runs **as root**: `/srv/camunda-backups/pg` is owned by uid 70 (the `postgres`
+container user, `docs/ops/install.md`) and the dumps by root, so the deploy user cannot
+remove a dump. The script checks that before its first `DELETE` and refuses when the dump
+exists and the directory is not writable, so a set is never left half-deleted; `--list` and
+`--dry-run` work as any user, and a dry run prints the refusal as a "would fail" line.
+
+What deletion does, in order: `DELETE :9600/actuator/backupHistory/<id>` (8.9 web-apps
+backup API; Elasticsearch finishes the snapshot deletions asynchronously, the script polls
+the repository until the id is gone, 120 s bound), `DELETE :9200/_snapshot/camunda/camunda_dated_<id>`
+(our own snapshot, Elasticsearch API), `DELETE :9600/actuator/backupRuntime/<id>` (8.9 Zeebe
+backup API, 204), then `rm` of the one file `pg/camunda_support_<id>.dump`. An incomplete set
+(a failed run, a peek-restore, a pg-only leftover) is deletable — whatever parts exist are
+removed. Refused: the newest set, and any deletion while a web-apps or Zeebe backup is
+`IN_PROGRESS`. A deleted backup id cannot be reused (8.9 docs) — irrelevant with `date +%s`
+ids.
+
+What is kept, rule of thumb: the newest complete set, the last set taken before a change
+that affects what a restore brings back (the last pre-6.5 set, because `worker` and the
+identity data came after it — §6), and nothing else. Run `--list` before deciding, and
+`verify-state.sh` before and after: only `esSnapshots` and `zeebeBackups` may change.
+
+**Last run 2026-09-28, 12:41Z.** `--list` before: six sets, all complete except 1790507500
+(web-apps 7/7 `COMPLETED`, dated `-`, Zeebe `COMPLETED`, pg yes — the dated snapshot step did
+not exist yet at restore #1). Dry runs for 1790507500, 1790533211, 1790534421 and 1790534841
+named exactly the expected parts; 1790535095 and 1790598065 untouched. A pre-check before
+any deletion (`ls -ld` and `test -w` on the pg directory: "pg NOT writable by digitlock")
+produced the ownership finding above, so the deletions ran as root from the start,
+1790507500 alone and the other three in a loop, each set gone in about 4 s with the
+remaining list printed after it. After, as the deploy user: `--list` shows 1790535095 (last
+pre-6.5) and 1790598065 (first post-6.5) only; `verify-state` diff `esSnapshots` 47 → 16 and
+`zeebeBackups` 6 → 2, nothing else; disk `es` 34 MB → 27 MB, `zeebe` 390 MB → 162 MB, `pg`
+two dumps.
 
 ## 3. Restore
 
