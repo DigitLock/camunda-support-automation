@@ -335,17 +335,29 @@ Runbook: `docs/runbooks/backup-restore.md`.
   `CANCEL_PROCESS_INSTANCE`, `RESOURCE`/`CREATE` (the reference calls it "equivalent to
   allowing remote code execution"), `COMPONENT`/`ACCESS`. Negative proof: `GET
   /v2/process-definitions/<key>` as `worker` answers 403 and as `admin` 200 (one GET, no side
-  effect; a search would filter instead of refusing). Both workers read `CAMUNDA_USER=worker`
+  effect; a search would filter instead of refusing — which is why a `POST
+  /v2/user-tasks/search` → 200 as `worker` proves only that the credentials are accepted,
+  not the permission). The user-task permissions are proven by `--probe-sla`, the only path
+  that updates a user task as `worker`; the e2e completes user tasks as `admin`. Both workers read `CAMUNDA_USER=worker`
   and `CAMUNDA_PASSWORD=${CAMUNDA_WORKER_PASSWORD}` from `infra/docker-compose.yml`, the
   classifier's own `.env` keeps LLM variables only — one credential source. Job activation is
   type-based and names no process id; the reference says the check is per targeted process
   definition. If the stand refuses activation with the process-id scope (an empty batch,
   not a 403 — a stalled e2e is the symptom), the fallback is resource id `*` with the same
   three permissions (`create-worker-user.sh --wildcard`), recorded as observed behaviour.
-- Password rotation on a running cluster (backlog item): change via `PUT /v2/users/{username}`
-  → update `.env` → `docker compose up -d` on the affected services, in that order, and
-  the window in which a worker holds the old password is one long-poll (10 s). Rehearsed
-  once for `worker`; documented for `admin` and `connectors`.
+  **Observed 2026-09-28:** activation with resource id `support-request-v1` works for all
+  seven job types (e2e 8/8 plus dedup in 1:08 as `worker`), the wildcard fallback was not
+  needed; `--probe-sla` PASS as `worker`; negative proof 403, control 200.
+- Password rotation on a running cluster: `docs/runbooks/password-rotation.md`. Order for
+  `worker`: **stop both workers → `PUT /v2/users/worker` → update `.env` → `up -d`**, so no
+  worker ever holds a password the cluster no longer accepts; the window is a "workers
+  down" window of seconds in which new jobs wait as CREATED. On SIGTERM the booking worker
+  drains in-flight jobs (25 s limit, under the 30 s stop grace), the classifier stops its
+  pollers and releases an in-flight job to its timeout, where it runs once more. Zero-window
+  variant for production: second user with the same authorization, switch, delete the old
+  one. Documented for `admin` and `connectors`, whose values also sit in `orchestration`'s
+  environment (initialization only) and therefore recreate the cluster container on the
+  next `up -d`. Passwords: `openssl rand -hex 24`, never echoed.
 
 ## 8. Acceptance (6.6)
 

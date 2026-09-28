@@ -60,22 +60,30 @@ if [ "$MODE" = create ]; then
     [ "$st" = "201" ] || fail "POST /authorizations returned $st"
     log "authorization created: PROCESS_DEFINITION $RESOURCE_ID $(printf '%s' "$PERMISSIONS" | jq -r 'join(",")')"
   fi
+  # the search reads secondary storage, which lags the write by a few seconds (observed
+  # 2026-09-28: empty list right after the create) — retry briefly
   echo "authorizations of $WORKER_USER:"
-  api POST /authorizations/search "$(jq -cn --arg o "$WORKER_USER" '{filter: {ownerId: $o, ownerType: "USER"}}')" \
-    | jq -r '.items[]? | "  \(.resourceType)  \(.resourceId)  \(.permissionTypes | join(","))"'
+  for _ in 1 2 3 4 5; do
+    listing=$(api POST /authorizations/search "$(jq -cn --arg o "$WORKER_USER" '{filter: {ownerId: $o, ownerType: "USER"}}')" \
+      | jq -r '.items[]? | "  \(.resourceType)  \(.resourceId)  \(.permissionTypes | join(","))"')
+    [ -n "$listing" ] && break
+    sleep 2
+  done
+  echo "${listing:-  (not visible yet — the search reads secondary storage; re-run with --verify in a minute)}"
 fi
 
-# 3. proof, zero side effects either way
+# 3. proofs, zero side effects either way
 #    negative: GET one process definition — READ_PROCESS_DEFINITION is not granted → 403 as
 #    worker, 200 as admin (control). A single GET, not a search: searches filter, they do not 403.
-#    positive: POST /user-tasks/search as worker → 200 (READ_USER_TASK). Job activation is
-#    proven by the e2e run, not here (an activation would take a real job).
+#    credentials: POST /user-tasks/search as worker → 200 proves only that the password is
+#    accepted (a search answers 200 without the permission too). The permissions themselves
+#    are proven by the e2e run (job activation) and by --probe-sla (user-task update).
 key=$(api POST /process-definitions/search "$(jq -cn --arg id "$PROCESS_ID" '{filter: {processDefinitionId: $id, isLatestVersion: true}, page: {limit: 1}}')" | jq -r '.items[0].processDefinitionKey // empty')
 [ -n "$key" ] || fail "no deployed process $PROCESS_ID"
 neg=$(code "$WORKER_USER" "$CAMUNDA_WORKER_PASSWORD" GET "/process-definitions/$key")
 ctl=$(code admin "$CAMUNDA_ADMIN_PASSWORD" GET "/process-definitions/$key")
-pos=$(code "$WORKER_USER" "$CAMUNDA_WORKER_PASSWORD" POST /user-tasks/search '{"page":{"limit":1}}')
+cred=$(code "$WORKER_USER" "$CAMUNDA_WORKER_PASSWORD" POST /user-tasks/search '{"page":{"limit":1}}')
 [ "$neg" = "403" ] && echo "PASS negative proof: GET /process-definitions/$key as $WORKER_USER → 403" || echo "FAIL negative proof: GET /process-definitions/$key as $WORKER_USER → $neg (expected 403)"
 [ "$ctl" = "200" ] && echo "PASS control: same GET as admin → 200" || echo "FAIL control: same GET as admin → $ctl (expected 200)"
-[ "$pos" = "200" ] && echo "PASS positive proof: POST /user-tasks/search as $WORKER_USER → 200" || echo "FAIL positive proof: POST /user-tasks/search as $WORKER_USER → $pos (expected 200)"
-[ "$neg" = "403" ] && [ "$ctl" = "200" ] && [ "$pos" = "200" ]
+[ "$cred" = "200" ] && echo "PASS credentials accepted: POST /user-tasks/search as $WORKER_USER → 200 (authentication only; permissions: e2e + --probe-sla)" || echo "FAIL credentials: POST /user-tasks/search as $WORKER_USER → $cred (expected 200)"
+[ "$neg" = "403" ] && [ "$ctl" = "200" ] && [ "$cred" = "200" ]

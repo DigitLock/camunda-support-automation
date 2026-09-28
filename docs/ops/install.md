@@ -214,12 +214,25 @@ process), `READ_USER_TASK` and `UPDATE_USER_TASK` (the `sla.escalate` handler se
 open agent task and raises its priority). Nothing else: no `READ_PROCESS_DEFINITION`, no
 `CREATE_PROCESS_INSTANCE`, no `RESOURCE` or `COMPONENT` permission, so `worker` cannot
 deploy, start, cancel or log in to Operate. The script ends with three zero-side-effect
-proofs: `GET /v2/process-definitions/<key>` as `worker` → 403 and as `admin` → 200
-(control), `POST /v2/user-tasks/search` as `worker` → 200. Job activation is proven by the
-e2e run afterwards: an unauthorized activation may return an **empty batch instead of
-403**, so an e2e run that stalls counts as an authorization failure. If that happens, the
-fallback is `tests/ops/create-worker-user.sh --wildcard` (resource id `*`, same three
-permissions); record it as observed behaviour and in the backlog.
+checks: `GET /v2/process-definitions/<key>` as `worker` → 403 and as `admin` → 200
+(control, the negative proof), and `POST /v2/user-tasks/search` as `worker` → 200, which
+proves only that the credentials are accepted (a search answers 200 without the permission
+too — searches filter, they do not refuse). The permissions themselves are proven by the
+e2e run (job activation for every type) and by `send-tickets.sh --probe-sla` (the
+`sla.escalate` user-task update; the plain e2e completes user tasks as `admin`, so it does
+not exercise them). An unauthorized activation may return an **empty batch instead of
+403**, so an e2e run that stalls counts as an authorization failure; the fallback is
+`tests/ops/create-worker-user.sh --wildcard` (resource id `*`, same three permissions),
+to be recorded as observed behaviour and in the backlog.
+
+Changing a password later, for any of the three users: `docs/runbooks/password-rotation.md`.
+
+**Observed 2026-09-28:** user and authorization created, negative proof 403 / control 200,
+both workers recreated as `worker` (`docker inspect` shows `CAMUNDA_USER=worker`), no auth
+errors in the logs; e2e 8/8 plus dedup in 1:08 — the process-id scope is sufficient for job
+activation of all seven types, the wildcard fallback was **not** needed; `--probe-sla`
+passed as `worker` (priority 50 → 90, candidate group `supervisors`, `slaBreached = true`,
+`sla_escalation` row written).
 
 Phase 5 adds PostgreSQL (`postgres` service, profile `integrations`) for the LLM audit:
 schema comes from `infra/postgres/init/` on the first start of an empty volume; the worker
