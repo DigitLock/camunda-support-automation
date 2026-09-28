@@ -317,14 +317,31 @@ Runbook: `docs/runbooks/backup-restore.md`.
 
 ## 7. Least privilege and rotation (6.5)
 
-- User `worker` created through `camunda.security.initialization` (fresh secondary storage
-  only) **or** the Admin UI / `POST /v2/users` on the running stand — the runbook covers
-  the second path because the stand is not recreated for this. Authorizations: `PROCESS_DEFINITION`
-  `UPDATE_PROCESS_INSTANCE` on `support-request-v1` for job activation/completion,
-  `DECISION_DEFINITION` read is not needed by the workers. Exact resource/permission
-  names are taken from the 8.9 authorization reference during 6.5 and recorded in the
-  runbook; `CAMUNDA_USER` in `infra/docker-compose.yml` switches from `admin` to `worker`
-  for both workers, `CAMUNDA_WORKER_PASSWORD` joins `.env.example`.
+- User `worker` is created on the **running** stand through the REST API v2 by
+  `tests/ops/create-worker-user.sh` (idempotent; `POST /v2/users`, `POST /v2/authorizations`
+  as admin). `camunda.security.initialization` was not used: it applies only to a fresh
+  secondary storage, and the stand is not recreated for this. One authorization, owner
+  `USER`/`worker`, resource type `PROCESS_DEFINITION`, resource id `support-request-v1` (the
+  BPMN process id), permissions from the 8.9 authorization reference
+  (`docs.camunda.io/docs/8.9/components/concepts/access-control/authorizations/`):
+
+  | Permission | Why |
+  |---|---|
+  | `UPDATE_PROCESS_INSTANCE` | "Job workers: Resource type Process Definition — `UPDATE_PROCESS_INSTANCE` to activate or complete jobs for the targeted process definitions" (also fail and throw-error); covers all seven job types of the process |
+  | `READ_USER_TASK` | `sla.escalate` searches the open agent task (`workers/llm-classifier/sla.py`); process-level user-task permissions override task-level checks |
+  | `UPDATE_USER_TASK` | `sla.escalate` raises the task priority and sets the candidate group |
+
+  Not granted, deliberately: `READ_PROCESS_DEFINITION`, `CREATE_PROCESS_INSTANCE`,
+  `CANCEL_PROCESS_INSTANCE`, `RESOURCE`/`CREATE` (the reference calls it "equivalent to
+  allowing remote code execution"), `COMPONENT`/`ACCESS`. Negative proof: `GET
+  /v2/process-definitions/<key>` as `worker` answers 403 and as `admin` 200 (one GET, no side
+  effect; a search would filter instead of refusing). Both workers read `CAMUNDA_USER=worker`
+  and `CAMUNDA_PASSWORD=${CAMUNDA_WORKER_PASSWORD}` from `infra/docker-compose.yml`, the
+  classifier's own `.env` keeps LLM variables only — one credential source. Job activation is
+  type-based and names no process id; the reference says the check is per targeted process
+  definition. If the stand refuses activation with the process-id scope (an empty batch,
+  not a 403 — a stalled e2e is the symptom), the fallback is resource id `*` with the same
+  three permissions (`create-worker-user.sh --wildcard`), recorded as observed behaviour.
 - Password rotation on a running cluster (backlog item): change via `PUT /v2/users/{username}`
   → update `.env` → `docker compose up -d` on the affected services, in that order, and
   the window in which a worker holds the old password is one long-poll (10 s). Rehearsed

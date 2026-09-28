@@ -240,8 +240,10 @@ services:
     profiles: ["workers"]
     environment:
       CAMUNDA_BASE_URL: http://orchestration:8080
-      CAMUNDA_USER: admin
-      CAMUNDA_PASSWORD: ${CAMUNDA_ADMIN_PASSWORD:?set CAMUNDA_ADMIN_PASSWORD in infra/.env}
+      # technical user with scoped authorizations (Phase 6.5, design §7); created on the
+      # running stand by tests/ops/create-worker-user.sh
+      CAMUNDA_USER: worker
+      CAMUNDA_PASSWORD: ${CAMUNDA_WORKER_PASSWORD:?set CAMUNDA_WORKER_PASSWORD in infra/.env}
       BOOKING_API_URL: http://booking-api:8080
       # ISO 8601 backoff between job retries after a booking-api 5xx/timeout/transport
       # error (Phase 6.1 scenario A); 3 retries × PT10S ≈ incident after 20 s
@@ -274,8 +276,12 @@ services:
       # versioned system prompts, loaded at runtime by CLASSIFY_PROMPT_VERSION
       - ../prompts:/app/prompts:ro
     environment:
-      # overrides the venv-oriented localhost values from the env_file
+      # overrides the venv-oriented localhost values from the env_file; the Camunda
+      # credentials come from infra/.env only (single source, Phase 6.5) — the same
+      # `worker` user as worker-booking
       CAMUNDA_BASE_URL: http://orchestration:8080
+      CAMUNDA_USER: worker
+      CAMUNDA_PASSWORD: ${CAMUNDA_WORKER_PASSWORD:?set CAMUNDA_WORKER_PASSWORD in infra/.env}
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in infra/.env}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?set ANTHROPIC_API_KEY in infra/.env}
       LLM_MODEL_CLASSIFY: ${LLM_MODEL_CLASSIFY:-claude-haiku-4-5}

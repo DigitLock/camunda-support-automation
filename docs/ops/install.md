@@ -189,7 +189,37 @@ docker compose up -d --build
 
 The venv run of the classifier worker (`workers/llm-classifier/README.md`) remains
 available as a dev fallback — never run it and the container at the same time, they
-compete for the same job types.
+compete for the same job types. For the venv run, set `CAMUNDA_BASE_URL`, `CAMUNDA_USER`
+and `CAMUNDA_PASSWORD` in the shell (the commented lines of its `.env.example`); in compose
+they come from `infra/.env`.
+
+### Worker user (Phase 6.5)
+
+Both workers authenticate as the technical user `worker`, not `admin`
+(`docs/design/operations-v1.md` §7). Its password is `CAMUNDA_WORKER_PASSWORD` in
+`infra/.env`, the single source for both services (`docker-compose.yml`, `environment` of
+`worker-booking` and `worker-llm-classifier`). Users from `application.yaml` apply only to a
+fresh secondary storage, so the user is created on the running stand through the REST API:
+
+```bash
+# on the VM, once
+printf 'CAMUNDA_WORKER_PASSWORD=%s\n' "$(openssl rand -hex 24)" >> .env     # hex: nothing to escape
+tests/ops/create-worker-user.sh          # user + one authorization, idempotent, then the proofs
+docker compose up -d worker-booking worker-llm-classifier                   # recreate with the new env
+```
+
+The authorization is `PROCESS_DEFINITION` / `support-request-v1` with
+`UPDATE_PROCESS_INSTANCE` (activate, complete, fail and throw-error for every job of the
+process), `READ_USER_TASK` and `UPDATE_USER_TASK` (the `sla.escalate` handler searches the
+open agent task and raises its priority). Nothing else: no `READ_PROCESS_DEFINITION`, no
+`CREATE_PROCESS_INSTANCE`, no `RESOURCE` or `COMPONENT` permission, so `worker` cannot
+deploy, start, cancel or log in to Operate. The script ends with three zero-side-effect
+proofs: `GET /v2/process-definitions/<key>` as `worker` → 403 and as `admin` → 200
+(control), `POST /v2/user-tasks/search` as `worker` → 200. Job activation is proven by the
+e2e run afterwards: an unauthorized activation may return an **empty batch instead of
+403**, so an e2e run that stalls counts as an authorization failure. If that happens, the
+fallback is `tests/ops/create-worker-user.sh --wildcard` (resource id `*`, same three
+permissions); record it as observed behaviour and in the backlog.
 
 Phase 5 adds PostgreSQL (`postgres` service, profile `integrations`) for the LLM audit:
 schema comes from `infra/postgres/init/` on the first start of an empty volume; the worker
