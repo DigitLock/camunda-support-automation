@@ -68,13 +68,14 @@ Ideas parked here to keep the current phase focused. Each entry names the phase 
      and #3, **skipped by `restore.sh` in both** — every day-suffixed index came back with
      the web-apps parts. Either remove it (smaller scripts, one snapshot type less to
      explain) or keep it and justify it in §1 as protection against a different failure.
-   - **6.6 — `incident-handling.md` A1: precondition.** Add "`tests/e2e/send-tickets.sh
-     --incidents` shows no ACTIVE incidents" before the scenario: a second
-     `--probe-booking-5xx` on top of an open incident produced two concurrent incidents
-     (observed 2026-09-28 while taking g-02).
-   - **6.6 — `incident-handling.md` A1 Fix: how to reach Operate.** Say that Operate is at
-     port 8080 under `/operate`, login `admin`, and that `bookingRef` is edited on the
-     process-instance (root) scope in the Variables tab, not on the task scope.
+   - **6.6 — `incident-handling.md` A1: precondition.** Done 2026-09-28: §0
+     "Preconditions" requires an empty `tests/e2e/send-tickets.sh --incidents` first
+     section before a case starts (a second `--probe-booking-5xx` on top of an open
+     incident produced two concurrent incidents, observed 2026-09-28 while taking g-02).
+   - **6.6 — `incident-handling.md` A1 Fix: how to reach Operate.** Done 2026-09-28: §3
+     "Finding the incident in Operate" — port 8080 under `/operate`, login `admin`,
+     `bookingRef` edited on the process-instance (root) scope in the Variables tab, not on
+     the task scope.
    - **Phase 7 — verify identity state after a restore, on the next restore rehearsal.**
      Users and authorizations are engine state and come back with the Zeebe backup, but
      their secondary-storage indices (`camunda-user-8.8.0_` …) are in no snapshot of the set

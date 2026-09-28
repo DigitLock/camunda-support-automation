@@ -1,45 +1,39 @@
 # Camunda Support Automation
 
-Status: Phase 5 done — LLM classifier with guardrails (Claude Haiku classify, Sonnet
-answer/notify, two-layer schema validation, number grounding, keyword/template fallback,
-review loop with recorded corrections, PostgreSQL audit); process v8, DMN v3, e2e 8/8 over
-Kafka incl. the Russian refund ticket, negative probe raises an incident (run 20260925T142455Z).
-Acceptance against the plan: [docs/backlog.md](docs/backlog.md#phase-5-acceptance-against-the-plan).
-Phase 6 in progress — 6.1–6.5 done 2026-09-28: incident scenarios, instance migration, SLA
-escalation, backup/restore rehearsed in three round-trips, patch upgrade rehearsed on the lab,
-monitoring profile deployed with the incident alert, workers on a scoped `worker` user,
-password rotation rehearsed; 6.6 acceptance left.
+Non-production Camunda license · single node · phases 0–6.5 done · 6.6 acceptance and phase 7 pending
 
-Phase 2 — process `support-request-v1` at version 3 (v1 happy path; v2 misrouted
-at a single gateway; v3 with a separate needs-review gateway, see
-[docs/design/process-v1.md](docs/design/process-v1.md), D2-7), two linked Camunda forms, Python
-stub worker, e2e script — 5/5 tickets passed in unattended and manual modes (Phase 2
-acceptance; 7 tickets since Phase 4). Screenshots in
-[docs/assets/phase-2/](docs/assets/phase-2/): `modeler-support-request-v3.png`,
-`operate-process-v1.png`, `operate-process-v3.png`, `operate-t0001-happy-path.png`,
-`operate-t0004-waiting-review.png`, `operate-t0004-review-loop.png`,
-`operate-t0004-v2-wrong-branch.png`, `tasklist-open-tasks.png`,
-`tasklist-review-classification-form.png`, and from the manual run
-`tasklist-handle-by-agent-form.png` and `operate-completed-instances.png` (the
-handle-by-agent form in Tasklist and the completed instances list in Operate).
+A customer support automation stand on **Camunda 8.9 Self-Managed**, built from an empty VM
+into a monitored, backed-up, upgradeable single-node deployment. A ticket arrives over Kafka,
+an LLM classifier with guardrails reads it, DMN routes it, workers call a booking API and an FX
+gateway, an LLM drafts the answer, and the result goes back to Kafka. It proves the whole loop:
+process and decision modelling, an LLM step that fails safely, REST and Kafka integrations, and
+day-two operations (incidents, migration, backup, upgrade, monitoring, least privilege), each
+rehearsed on the running stand and written down with what was observed. Decisions: [`docs/adr/`](docs/adr/).
 
-Phase 3 — routing lives in DMN: DRD `routing-v1` of four decisions (three decision tables plus
-a literal expression), `route-ticket` is a business rule task since process version 4, and the
-stub worker no longer contains routing rules (see
-[docs/design/routing-v1.md](docs/design/routing-v1.md)). Ticket T-1006 demonstrates a rule the
-code never had — `sentiment = "negative"` alone raises priority to `high`. Tests: DMN matrix
-17/17, e2e 6/6 in both modes at the Phase 3 acceptance (18 cases / 7 tickets since
-Phase 4 — `tests/dmn/`, `tests/e2e/`). Two observations worth knowing:
-the DMN result variable `routing` exists only at the `route-ticket` task scope — the process
-sees just the fields copied out by output mappings; and `tests/dmn/evaluate.sh` calls show up
-in Operate → Decisions as standalone evaluations with Process Instance Key = -1. Screenshots
-in [docs/assets/phase-3/](docs/assets/phase-3/), e.g. `modeler-drd.png`,
-`operate-decision-evaluation.png`, `operate-instance-v4.png`.
+Stack: Camunda 8.9.21 Self-Managed, Docker Compose, Kafka 4.3.1, Python/Go workers, Claude API, Prometheus/Grafana.
 
-A customer support automation stand on **Camunda 8.9 Self-Managed**: a BPMN ticket process with
-DMN/FEEL routing, an LLM classifier with guardrails (Claude API, JSON Schema validation, keyword
-fallback), REST and Kafka integrations, and an operations layer — install, monitoring, backup,
-instance migration and a rehearsed minor upgrade. The stand comes up from this repository on a single Docker Compose VM. Architecture decisions live in [`docs/adr/`](docs/adr/).
+## Requirement → Evidence
+
+| Requirement | Evidence | Screenshot |
+|---|---|---|
+| BPMN processes and DMN decision tables in Camunda 8 | [`processes/`](processes/), [`decisions/`](decisions/), [DMN test matrix](tests/dmn/README.md) (18 cases) | [DRD in Modeler](docs/assets/phase-3/modeler-drd.png), [process v3 in Modeler](docs/assets/phase-2/modeler-support-request-v3.png) |
+| Customer support automation, greenfield + ongoing improvements | process changelog v1→v10 in [process design](docs/design/process-v1.md) (§10–11), [migration runbook](docs/runbooks/migration.md) | [v10 model](docs/assets/phase-6/d-00-v10-model.png), [versions in Operate](docs/assets/phase-4/operate-process-versions.png) |
+| LLM classifier with configurable prompts | [`workers/llm-classifier/`](workers/llm-classifier/), [`prompts/`](prompts/), [accuracy report](tests/classification/report-latest.md) | [review form in Tasklist](docs/assets/phase-5/tasklist-review-form-v2.png) |
+| Call flow schemes | planned, phase 7 | — |
+| Support and debug in Operate, quick fixes in production | [incident-handling runbook](docs/runbooks/incident-handling.md), [timeout runbook](docs/runbooks/timeout.md) | [failing element in Operate](docs/assets/phase-6/a1-02-diagram-incident.png), [batch Retry](docs/assets/phase-6/a2-03-batch-retry.png) |
+| REST / JSON / Kafka integrations | Kafka and REST connectors in [`infra/docker-compose.yml`](infra/docker-compose.yml) and the model, [`workers/booking/`](workers/booking/), [`services/fx-gateway/`](services/fx-gateway/), [integrations design](docs/design/integrations-v1.md) | [Kafka start event](docs/assets/phase-4/modeler-kafka-start-event.png), [REST convert-refund](docs/assets/phase-4/modeler-rest-convert-refund.png) |
+| Operations on production-like systems | [install](docs/ops/install.md), [backup and restore](docs/runbooks/backup-restore.md), [upgrade](docs/ops/upgrade.md), [password rotation](docs/runbooks/password-rotation.md), [monitoring profile](docs/design/operations-v1.md#2-monitoring-65) | [Grafana dashboard](docs/assets/phase-6/g-01-grafana-dashboard.png), [incident alert firing](docs/assets/phase-6/g-02-grafana-alert-firing.png) |
+| BPMN 2.0 / DMN / FEEL depth | planned, phase 7 | — |
+| AI/LLM guardrails | [LLM guardrails overview](docs/design/llm-guardrails.md), [classifier design](docs/design/llm-classifier-v1.md) | [review loop in Operate](docs/assets/phase-5/operate-v7-review-loop.png) |
+| SQL for process analysis | planned, phase 7 | — |
+
+## Findings worth reading
+
+- **A profile that is only in `.env.example` is not deployed.** The monitoring profile was built in 6.1 and never reached the VM until 6.5; a key check now guards install, restore and upgrade — [lessons learned](docs/lessons-learned.md).
+- **The incident gauge is `zeebe_pending_incidents`, not `_total`.** The design assumed the suffix; a live scrape corrected it before the alert went in — [operations design §2](docs/design/operations-v1.md#2-monitoring-65).
+- **A search answering 200 proves credentials, not permissions.** Least privilege for the `worker` user is proven by job activation and `--probe-sla`, not by a search — [install, Workers](docs/ops/install.md#workers).
+- **The search API lags the engine.** The e2e completed a user task twice on a stale search result and died on the 404; only the write's answer is authoritative — [lessons learned](docs/lessons-learned.md).
+- **Identity indices are in no snapshot of the backup set.** Users and authorizations come back with the engine state, their secondary-storage indices do not; verify `worker` after any restore — [backup and restore §6](docs/runbooks/backup-restore.md#6-limits).
 
 ## Architecture
 
@@ -97,7 +91,6 @@ infra/              Docker Compose, config, disposable upgrade-lab stack
 processes/          BPMN models
 decisions/          DMN models
 forms/              Camunda Forms
-connectors/         Connector templates and configuration
 workers/            Job workers: booking (Go), llm-classifier (Python)
 services/           Mock Booking API + FX gateway (Go)
 prompts/            Versioned classifier prompts with labelled test set
@@ -118,6 +111,44 @@ docs/               Design, ops guides, runbooks, analytics, ADRs
 | 6 | Operations | in progress — 6.1–6.5 done 2026-09-28; 6.6 acceptance left ([design and plan](docs/design/operations-v1.md)) |
 | 7 | Docs & analytics | planned |
 | 8 | Publication | planned |
+
+## Phase notes
+
+Phase 5 — LLM classifier with guardrails (Claude Haiku classify, Sonnet
+answer/notify, two-layer schema validation, number grounding, keyword/template fallback,
+review loop with recorded corrections, PostgreSQL audit); process v8, DMN v3, e2e 8/8 over
+Kafka incl. the Russian refund ticket, negative probe raises an incident (run 20260925T142455Z).
+Acceptance against the plan: [docs/backlog.md](docs/backlog.md#phase-5-acceptance-against-the-plan).
+Phase 6 — 6.1–6.5 done 2026-09-28: incident scenarios, instance migration, SLA
+escalation, backup/restore rehearsed in three round-trips, patch upgrade rehearsed on the lab,
+monitoring profile deployed with the incident alert, workers on a scoped `worker` user,
+password rotation rehearsed.
+
+Phase 2 — process `support-request-v1` at version 3 (v1 happy path; v2 misrouted
+at a single gateway; v3 with a separate needs-review gateway, see
+[docs/design/process-v1.md](docs/design/process-v1.md), D2-7), two linked Camunda forms, Python
+stub worker, e2e script — 5/5 tickets passed in unattended and manual modes (Phase 2
+acceptance; 7 tickets since Phase 4). Screenshots in
+[docs/assets/phase-2/](docs/assets/phase-2/): `modeler-support-request-v3.png`,
+`operate-process-v1.png`, `operate-process-v3.png`, `operate-t0001-happy-path.png`,
+`operate-t0004-waiting-review.png`, `operate-t0004-review-loop.png`,
+`operate-t0004-v2-wrong-branch.png`, `tasklist-open-tasks.png`,
+`tasklist-review-classification-form.png`, and from the manual run
+`tasklist-handle-by-agent-form.png` and `operate-completed-instances.png` (the
+handle-by-agent form in Tasklist and the completed instances list in Operate).
+
+Phase 3 — routing lives in DMN: DRD `routing-v1` of four decisions (three decision tables plus
+a literal expression), `route-ticket` is a business rule task since process version 4, and the
+stub worker no longer contains routing rules (see
+[docs/design/routing-v1.md](docs/design/routing-v1.md)). Ticket T-1006 demonstrates a rule the
+code never had — `sentiment = "negative"` alone raises priority to `high`. Tests: DMN matrix
+17/17, e2e 6/6 in both modes at the Phase 3 acceptance (18 cases / 7 tickets since
+Phase 4 — `tests/dmn/`, `tests/e2e/`). Two observations worth knowing:
+the DMN result variable `routing` exists only at the `route-ticket` task scope — the process
+sees just the fields copied out by output mappings; and `tests/dmn/evaluate.sh` calls show up
+in Operate → Decisions as standalone evaluations with Process Instance Key = -1. Screenshots
+in [docs/assets/phase-3/](docs/assets/phase-3/), e.g. `modeler-drd.png`,
+`operate-decision-evaluation.png`, `operate-instance-v4.png`.
 
 ## Daily status
 

@@ -309,6 +309,11 @@ environment (`PUBLIC_CHECK_PATTERN`, like `STAND_HOST`) and is never tracked. Ru
 before every commit of docs or screenshots; the e2e README and the backlog reference it
 as the closing step.
 
+`tests/docs/check-links.sh` checks every relative link and image path in `README.md` and
+under `docs/` and exits 0 only when each one resolves to an existing file or directory.
+Run it together with `make check-public` before a docs commit; `http(s)` links are not
+checked.
+
 ## Limitations (accepted for this stand)
 
 - **Kafka runs without authentication or TLS** (PLAINTEXT on both listeners). Acceptable

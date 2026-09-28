@@ -3,6 +3,16 @@
 What the stand taught that is not obvious from the code. One entry per lesson, newest
 first; the phase and date say when it was learned.
 
+- **2026-09-28, Phase 6.5 — the search API reads secondary storage, which lags the engine.**
+  `POST /v2/user-tasks/search` answers from Elasticsearch, not from the Zeebe partition, so a
+  user task completed a moment ago can still be listed as CREATED. The e2e script took the
+  stale row for an open task, sent a second completion for T-1004, got a 404 and died under
+  `set -e` — an incident-free stand read as a failed run. The fix in
+  `tests/e2e/send-tickets.sh` is to remember the task key already completed for an instance,
+  skip it while the search still shows it, and treat a 404 on completion as "already gone"
+  and wait for the instance instead of aborting. The rule: any read-then-act loop over the
+  search endpoints has to tolerate its own previous action still being invisible; only the
+  engine's answer to the write (2xx, 404, 409) is authoritative.
 - **2026-09-27, Phase 6.5 — a profile that is only in `.env.example` is not deployed.** The
   `monitoring` profile was built in 6.1 and never enabled on the VM: `COMPOSE_PROFILES` in
   the VM's `.env` lacked it, and nothing fails when a variable with a compose default is

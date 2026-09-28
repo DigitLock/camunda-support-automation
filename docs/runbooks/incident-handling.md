@@ -16,6 +16,16 @@ environment as the e2e (`CAMUNDA_BASE_URL`, `CAMUNDA_USER`, `CAMUNDA_PASSWORD`,
 `STAND_IP` or `KAFKA_BROKER`, `STAND_HOST` for `make`). No command here contains an
 address or a password; they come from the shell environment and `infra/.env`.
 
+## 0. Preconditions
+
+- **The incident list is empty.** On the workstation, `tests/e2e/send-tickets.sh --incidents`
+  must print an empty first section (no ACTIVE incidents) before a case is started. A
+  `--probe-booking-5xx` fired on top of an open incident produced two concurrent incidents
+  on the same element (observed 2026-09-28), and the screenshots and the Retry then no
+  longer match the runbook. Resolve or cancel what is open first.
+- The workstation environment from the conventions above is exported, and both workers
+  are up (`docker compose ps` on the stand host).
+
 ## 1. Triage — the first two minutes
 
 1. **Both views over the API** (workstation):
@@ -98,6 +108,11 @@ booking-api HTTP 500 on POST /bookings/BK-FAIL-500/cancel (retries left: 0)
 classification is right, the booking reference is bad data.
 
 ![Operate: variables of the failed instance](../assets/phase-6/a1-04b-variables.png)
+
+**Finding the incident in Operate.** Operate is at `http://<vm-host>:8080/operate`; log
+in as `admin` with the password from `infra/.env`. Processes → filter *Incidents*, or filter
+by variable `bookingRef = "BK-FAIL-500"`; open the instance. Edit the variable on the
+**process-instance (root) scope** in the Variables tab, not on the task scope.
 
 **Fix (Operate).** Variables → edit `bookingRef` → `"BK-90"` → save. Then **Retry** (top
 right, or the arrow icon in the incident row).
