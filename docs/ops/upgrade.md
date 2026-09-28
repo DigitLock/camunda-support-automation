@@ -25,8 +25,9 @@ the main stand is not upgraded because no newer 8.9.x exists (§1). The minor-up
 Window without running instances preferred (`verify-state.sh` shows `instances ACTIVE 0`).
 
 1. **Pre-checks** (stand host, `infra/`): `docker compose ps` all healthy;
-   `tests/ops/verify-state.sh > /tmp/state-before.txt`; Proxmox snapshot of the VM
-   (host side, outside this repo).
+   `tests/ops/verify-state.sh > /tmp/state-before.txt`; `.env` complete against
+   `.env.example` (`comm -23 <(grep -o '^[A-Z_]*=' .env.example | sort) <(grep -o '^[A-Z_]*=' .env | sort)` prints nothing; `docs/ops/install.md`); Proxmox snapshot of
+   the VM (host side, outside this repo).
 2. **Backup**: `tests/ops/backup.sh` — note the id.
 3. **Pin** (workstation): in `infra/.env.example` and the stand's `infra/.env` (root):
 

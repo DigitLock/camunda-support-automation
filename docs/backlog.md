@@ -68,6 +68,13 @@ Ideas parked here to keep the current phase focused. Each entry names the phase 
      and #3, **skipped by `restore.sh` in both** — every day-suffixed index came back with
      the web-apps parts. Either remove it (smaller scripts, one snapshot type less to
      explain) or keep it and justify it in §1 as protection against a different failure.
+   - **6.6 — `incident-handling.md` A1: precondition.** Add "`tests/e2e/send-tickets.sh
+     --incidents` shows no ACTIVE incidents" before the scenario: a second
+     `--probe-booking-5xx` on top of an open incident produced two concurrent incidents
+     (observed 2026-09-28 while taking g-02).
+   - **6.6 — `incident-handling.md` A1 Fix: how to reach Operate.** Say that Operate is at
+     port 8080 under `/operate`, login `admin`, and that `bookingRef` is edited on the
+     process-instance (root) scope in the Variables tab, not on the task scope.
    - **After Phase 8 — Camunda Non-Commercial License application.** The stand currently runs
      without a key ("Non-Production License" banner). Apply for the non-commercial license and
      add the key through the environment once the project is published.

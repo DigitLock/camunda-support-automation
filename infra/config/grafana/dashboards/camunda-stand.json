@@ -25,7 +25,7 @@
       "id": 1,
       "type": "stat",
       "title": "Pending incidents",
-      "description": "Unresolved incidents across partitions. Red = the CamundaIncidentsPending alert condition; triage in Operate (docs/runbooks/incidents.md).",
+      "description": "Unresolved incidents across partitions. Red = the CamundaIncidentsPending alert condition; triage in Operate (docs/runbooks/incident-handling.md).",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -76,7 +76,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(zeebe_pending_incidents_total) or vector(0)",
+          "expr": "sum(zeebe_pending_incidents) or vector(0)",
           "instant": true
         }
       ]
@@ -145,7 +145,7 @@
       "id": 3,
       "type": "stat",
       "title": "Instances completed (1 h)",
-      "description": "Process instances that reached an end state in the last hour.",
+      "description": "Process instances that reached an end state in the last hour. Shown with 0 decimals: increase() extrapolates to the range boundaries and yields fractions (8.14 for 8 events); the count is the rounded value.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -169,7 +169,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "decimals": 0
         },
         "overrides": []
       },
@@ -201,7 +202,7 @@
       "id": 4,
       "type": "stat",
       "title": "Jobs failed (1 h)",
-      "description": "Job failures reported by workers (retries or no retries). A BPMN error thrown is a separate action.",
+      "description": "Job failures reported by workers (retries or no retries). A BPMN error thrown is a separate action. Shown with 0 decimals: increase() extrapolates to the range boundaries and yields fractions (8.14 for 8 events); the count is the rounded value.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -229,7 +230,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "decimals": 0
         },
         "overrides": []
       },
@@ -396,7 +398,7 @@
       "id": 8,
       "type": "timeseries",
       "title": "Exporter lag (records)",
-      "description": "max(0, last processed position - last updated (acknowledged) exporter position) per partition, the same definition backup.sh waits on before the soft-pause (runbook backup-restore.md §6, mitigation A). In sync means updated >= processed, not equality: the updated position normally runs ahead of the processed one by the follow-up events of the last command, hence the clamp. Grows while exporting is paused (backup) or Elasticsearch is slow; should return to 0.",
+      "description": "max(0, last processed position - last updated (acknowledged) exporter position) per partition, the same definition backup.sh waits on before the soft-pause (runbook backup-restore.md \u00a76, mitigation A). In sync means updated >= processed, not equality: the updated position normally runs ahead of the processed one by the follow-up events of the last command, hence the clamp. Grows while exporting is paused (backup) or Elasticsearch is slow; should return to 0.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"

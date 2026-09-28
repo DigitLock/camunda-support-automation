@@ -21,17 +21,17 @@ for svc in prometheus grafana; do
   echo "$health" | grep -q "^$svc healthy$" && ok "$svc container healthy" || bad "$svc container healthy (got: $(echo "$health" | grep "^$svc" || echo missing))"
 done
 
-targets=$(prom /api/v1/targets)
-echo "$targets" | grep -q '"job":"orchestration"[^}]*"health":"up"' \
-  && ok "scrape target orchestration:9600 is up" \
-  || bad "scrape target orchestration:9600 is up (got: $(echo "$targets" | grep -o '"lastError":"[^"]*"' | head -1))"
+# instant query, not /api/v1/targets: the field order of the targets JSON differs in
+# Prometheus v3 and a field-order grep reported the target down while it was up (2026-09-27)
+upval=$(prom '/api/v1/query?query=up%7Bjob%3D%22orchestration%22%7D' | sed -n 's/.*"value":\[[0-9.]*,"\([^"]*\)".*/\1/p')
+[ "${upval:-}" = "1" ] && ok "scrape target orchestration:9600 is up" || bad "scrape target orchestration:9600 is up (up{job=\"orchestration\"} = ${upval:-no value})"
 
 rules=$(prom /api/v1/rules)
 for rule in CamundaIncidentsPending OrchestrationTargetDown; do
   echo "$rules" | grep -q "\"name\":\"$rule\"" && ok "alert rule $rule loaded" || bad "alert rule $rule loaded"
 done
 
-pending=$(prom '/api/v1/query?query=sum(zeebe_pending_incidents_total)' | sed -n 's/.*"value":\[[0-9.]*,"\([^"]*\)".*/\1/p')
+pending=$(prom '/api/v1/query?query=sum(zeebe_pending_incidents)' | sed -n 's/.*"value":\[[0-9.]*,"\([^"]*\)".*/\1/p')
 echo "INFO pending incidents: ${pending:-unknown} (0 on a quiet stand)"
 
 dash=$(docker compose exec -T grafana wget -qO- --header "Authorization: Basic $(printf 'admin:%s' "$GRAFANA_ADMIN_PASSWORD" | base64 | tr -d '\n')" \

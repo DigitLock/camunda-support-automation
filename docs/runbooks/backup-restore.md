@@ -63,7 +63,8 @@ instances; harmless).
 ## 3. Restore
 
 Preconditions: **same image version** as the backup (the version is in the snapshot names),
-no ACTIVE instances (the script refuses otherwise), a window without traffic.
+no ACTIVE instances (the script refuses otherwise), a window without traffic, and `.env`
+complete against `.env.example` (`comm -23 <(grep -o '^[A-Z_]*=' .env.example | sort) <(grep -o '^[A-Z_]*=' .env | sort)` prints nothing; `docs/ops/install.md`).
 
 ```bash
 tests/ops/restore.sh <backupId>                        # full sequence

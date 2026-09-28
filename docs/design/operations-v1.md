@@ -60,13 +60,20 @@ Go services is a Phase 7 idea (`docs/backlog.md`).
 
 | Metric | Type | Used for |
 |---|---|---|
-| `zeebe_pending_incidents_total` | gauge, per partition | the alert and the headline stat |
+| `zeebe_pending_incidents` | gauge, per partition | the alert and the headline stat. The name has no `_total` suffix on 8.9.21 (live scrape, 2026-09-27); the design first assumed `zeebe_pending_incidents_total`, which does not exist |
 | `zeebe_incident_events_total{action}` | counter (`created`, `resolved`) | incident rate, shows scenarios A/B happening |
 | `zeebe_job_events_total{action,type}` | counter | worker activity per job type (`activated`, `completed`, `failed`, `error thrown`) |
 | `zeebe_element_instance_events_total{action,type}` | counter | process instances completed per minute |
 | `zeebe_stream_processor_last_processed_position`, `zeebe_exporter_last_updated_exported_position{exporter="camundaexporter"}` | gauges, per partition | exporter lag = max(0, processed − updated); the updated (acknowledged) position normally runs ahead of the processed one by the follow-up events of the last command, so "in sync" is `updated ≥ processed`, not equality. Grows when ES is slow or exporting is paused (backup, §5); `backup.sh` waits for lag 0 before pausing (`docs/runbooks/backup-restore.md` §6, mitigation A) |
 | `jvm_memory_used_bytes{area}` | gauge | heap vs the 2 GiB `-Xmx` |
 | `up{job="orchestration"}` | scrape health | target-down alert |
+
+The counters (`zeebe_job_events_total`, `zeebe_element_instance_events_total`,
+`zeebe_incident_events_total`) are registered lazily: their series appear after the first
+event of that kind since the orchestration start and are absent before (observed
+2026-09-27: none after a restart, 30 and 13 series after one e2e run). "No data" on those
+panels right after a start is expected, not a scrape problem; the gauges and `up` are
+always there.
 
 Names come from the official Zeebe Grafana dashboard for 8.9 (`monitor/grafana/zeebe.json`
 in `camunda/camunda`). That dashboard is 850 KB and built for multi-node Kubernetes
@@ -81,7 +88,7 @@ automatically.
 
 | Alert | Expression | For | Meaning |
 |---|---|---|---|
-| `CamundaIncidentsPending` | `sum(zeebe_pending_incidents_total) > 0` | 1 m | at least one unresolved incident in Operate — the operations trigger for the runbook `docs/runbooks/incidents.md` |
+| `CamundaIncidentsPending` | `sum(zeebe_pending_incidents) > 0` | 1 m | at least one unresolved incident in Operate — the operations trigger for the runbook `docs/runbooks/incident-handling.md` |
 | `OrchestrationTargetDown` | `up{job="orchestration"} == 0` | 2 m | the management endpoint stopped answering |
 
 `for: 1m` on the incident rule filters the incident that a worker fails and resolves
@@ -177,7 +184,7 @@ timeout stays an infrastructure failure with retries and backoff (D6-10), i.e. s
 
 ### 3.3 Runbook
 
-`docs/runbooks/incidents.md` — triage in Operate (incident type → cause → action), the
+`docs/runbooks/incident-handling.md` — triage in Operate (incident type → cause → action), the
 two scenarios as worked examples, and the rule "resolve in place when the model is right
 and the environment was wrong; migrate when the model was wrong".
 
@@ -327,7 +334,7 @@ Runbook: `docs/runbooks/backup-restore.md`.
 
 | Criterion | Evidence |
 |---|---|
-| Incident visible in Grafana within 1 min, alert fires, clears on resolution | screenshot `grafana-incident-alert.png`, Prometheus alert state |
+| Incident visible in Grafana within 1 min, alert fires, clears on resolution | screenshots `g-01-grafana-dashboard.png` (dashboard during an e2e run), `g-02-grafana-alert-firing.png` and `g-02-grafana-alert-normal.png` (`CamundaIncidentsPending` during `--probe-booking-5xx`, then after the retry); Prometheus alert state |
 | Scenario A: A1, A2 (healing and incident), A3a, A3b each run once as documented; scenario B resolved by migration v8 → v9 | Operate screenshots, `--incidents` output, `send-tickets.sh --migrate-probe` PASS |
 | SLA timer fires on `slaOverride = PT2M`, `slaBreached = true` in `support.ticket.resolved` | `send-tickets.sh --probe-sla` PASS |
 | Backup + restore rehearsed from the runbook; pre-backup instances visible after restore | `tests/ops/backup.sh` / `restore.sh` output in the runbook |

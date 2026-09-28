@@ -3,6 +3,11 @@
 What the stand taught that is not obvious from the code. One entry per lesson, newest
 first; the phase and date say when it was learned.
 
+- **2026-09-27, Phase 6.5 — a profile that is only in `.env.example` is not deployed.** The
+  `monitoring` profile was built in 6.1 and never enabled on the VM: `COMPOSE_PROFILES` in
+  the VM's `.env` lacked it, and nothing fails when a variable with a compose default is
+  missing. Found in 6.5 by comparing the keys of `.env` with `.env.example`; that check is now
+  part of the install guide and of the restore and upgrade pre-checks.
 - **2026-09-27, Phase 6.4 — backup, restore and the patch-upgrade lab.** *A consistent
   backup can still restore inconsistently, and one occurrence is not a cause.* The first
   restore brought eight instances back without `startDate` although the snapshot held them

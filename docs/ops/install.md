@@ -118,7 +118,17 @@ docker compose up -d --wait   # about 1 min on a warm image cache, ~2 min with i
 ```
 
 Compose refuses to start (`required variable ... is missing a value`) if either password is
-still unset — that is intentional (`${VAR:?message}` in the compose file).
+still unset — that is intentional (`${VAR:?message}` in the compose file). Variables with a
+compose default do **not** fail fast, so a key that is new in `.env.example` can be missing
+from the VM's `.env` without any error. Compare the two files after every sync and before a
+restore or an upgrade (it prints the keys missing from `.env`; the expected output is empty):
+
+```bash
+comm -23 <(grep -o '^[A-Z_]*=' .env.example | sort) <(grep -o '^[A-Z_]*=' .env | sort)
+```
+
+Found this way in Phase 6.5: `COMPOSE_PROFILES` on the VM lacked `monitoring` — the profile
+had been in `.env.example` since 6.1 and was never enabled (`docs/lessons-learned.md`).
 
 The core services (orchestration, connectors, elasticsearch) have no `profiles:` key, so a plain
 `docker compose up -d --wait` starts exactly them. Subsequent code or config changes are rolled
@@ -220,8 +230,8 @@ What to look at:
   **Alerting → Alert rules** lists the two Prometheus rules (`CamundaIncidentsPending`,
   `OrchestrationTargetDown`) with their state.
 - Prometheus is not published. Query it through Grafana → Explore, or on the VM with
-  `docker compose exec prometheus wget -qO- 'http://localhost:9090/api/v1/query?query=sum(zeebe_pending_incidents_total)'`.
-- The scraped endpoint: `docker compose exec orchestration curl -sS http://localhost:9600/actuator/prometheus | grep zeebe_pending_incidents_total`.
+  `docker compose exec prometheus wget -qO- 'http://localhost:9090/api/v1/query?query=sum(zeebe_pending_incidents)'`.
+- The scraped endpoint, through curl in the `elasticsearch` container (the orchestration image has no curl, same route as `tests/ops/_lib.sh`): `docker compose exec -T elasticsearch curl -sS http://orchestration:9600/actuator/prometheus | grep zeebe_pending_incidents`.
 
 ## Backups
 
