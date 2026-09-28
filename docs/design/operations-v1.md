@@ -1,9 +1,9 @@
 # Operations v1 — design (Phase 6)
 
-**Status:** 6.0 (decisions, plan) done 2026-09-25; 6.1 (incident scenario A) done 2026-09-26
-(run on the stand, runbook `docs/runbooks/incident-handling.md`); the monitoring files of 6.5 exist in the
-repository (written with 6.0) but are not deployed. Milestones with status:
-`docs/backlog.md`, Phase 6 section.
+**Status:** 6.0 (decisions, plan) done 2026-09-25; 6.1–6.3 (incident scenarios, migration,
+SLA escalation) done 2026-09-26; 6.4 (backup/restore, upgrade lab) done 2026-09-27; 6.5
+(monitoring deployed, `worker` user, rotation rehearsed) done 2026-09-28; 6.6 acceptance
+against §8 open. Milestones with status: `docs/backlog.md`, Phase 6 section.
 
 Related: ADR-001 (profiles), ADR-002 (upgrade rehearsal, secondary storage), ADR-008
 (monitoring and backups stay on the stand VM), `process-v1.md`, `integrations-v1.md`,
@@ -367,7 +367,7 @@ Runbook: `docs/runbooks/backup-restore.md`.
 | Scenario A: A1, A2 (healing and incident), A3a, A3b each run once as documented; scenario B resolved by migration v8 → v9 | Operate screenshots, `--incidents` output, `send-tickets.sh --migrate-probe` PASS |
 | SLA timer fires on `slaOverride = PT2M`, `slaBreached = true` in `support.ticket.resolved` | `send-tickets.sh --probe-sla` PASS |
 | Backup + restore rehearsed from the runbook; pre-backup instances visible after restore | `tests/ops/backup.sh` / `restore.sh` output in the runbook |
-| Patch upgrade under the runbook, e2e 9/9 afterwards; minor upgrade rehearsed on the lab with waiting instances | runbook log, `upgrade-lab` screenshots |
+| Patch upgrade under the runbook (`docs/ops/upgrade.md`); nothing newer than 8.9.21 exists, so the patch path 8.9.19 → 8.9.21 was rehearsed on the lab with three waiting instances resumable afterwards; e2e 8/8 on the stand after the lab; the minor path 8.8 → 8.9 is not rehearsed (`docs/lessons-learned.md`) | `upgrade.md` §3 observed block with the f-01 / f-02 log excerpts (logs, not screenshots) |
 | Workers run as `worker`, not `admin`; rotation rehearsed | compose diff, runbook |
 | Every runbook executed once from the doc without improvising | `docs/runbooks/*.md` "last run" line |
 

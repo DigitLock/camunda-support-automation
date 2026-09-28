@@ -235,5 +235,28 @@ re-exported completion records instead of restored (§6).
   archiver's overwrite of a restored document by a re-exported partial one is not reported
   there. After the round-trips above it is material for an **observation report** (one
   occurrence, no reproduction), not a bug report with steps — `docs/backlog.md`, Phase 7.
-- The restore rebuilds the users and authorizations from `application.yaml`, then the
-  web-apps snapshot brings back the Operate/Tasklist state; sessions are lost.
+- **Identity data and the backup (6.5).** Users, roles, authorizations and memberships are
+  engine state in 8.9 (source, `stable/8.9`: `zeebe/engine/…/state/user/DbUserState.java`,
+  `…/state/authorization/DbAuthorizationState.java`), so they travel with the Zeebe
+  partition backup; the Camunda Exporter writes them into identity indices of the secondary
+  storage (`UserCreatedUpdatedHandler`, `AuthorizationCreatedUpdatedHandler`) — on the stand
+  `camunda-user-8.8.0_`, `camunda-authorization-8.8.0_`, `camunda-role-8.8.0_`,
+  `camunda-group-8.8.0_`, `camunda-tenant-8.8.0_`, `camunda-mapping-rule-8.8.0_`
+  (`_cat/indices`, 2026-09-28). **Observed in the snapshot index list, restore not tested:**
+  none of these six indices is in any of the eight snapshots of set 1790598065 (seven
+  web-apps parts plus `camunda_dated`), so the web-apps backup carries no identity data, and
+  `restore.sh` step 3 deletes those indices (they match `camunda`). What rebuilds them after
+  a restore is not stated in the 8.9 backup guide as far as we read it; the identity-as-code
+  page says only that Admin "checks only the ID to decide whether an entity already exists"
+  and never updates an existing one, without saying whether that check reads the engine or
+  the secondary storage. What the three round-trips showed: `admin` could log in after each
+  restore (a user from `application.yaml`). `worker`, created through the API and not in
+  `application.yaml`, has never been through a restore. **Rule after ANY restore:**
+  `tests/ops/create-worker-user.sh --verify`; if it fails, `tests/ops/create-worker-user.sh`
+  (idempotent). If that run answers 409 on `POST /v2/users`, the user exists in engine state
+  but not in the identity index — stop and record it; this is the open point in
+  `docs/backlog.md` (Phase 7: verify identity state on the next restore rehearsal). Because
+  passwords are part of the same engine state, a restore should also **revert every user
+  password to backup time** (follows from the above, not tested): if a password was rotated
+  since (`docs/runbooks/password-rotation.md`), rerun the rotation or put back the `.env`
+  that matches the backup. Sessions are lost in every case.

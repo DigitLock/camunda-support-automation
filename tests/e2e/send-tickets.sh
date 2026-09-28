@@ -166,24 +166,48 @@ wait_for_instance() { # TICKET_ID -> instance key
   echo "$key"
 }
 
+# Completes one user task. Returns 0 on success, 2 when the engine answers 404 — the task
+# is already gone: completed by the previous iteration while the search (secondary storage)
+# still listed it as CREATED, or removed by a timer or a cancellation — and 1 on any other
+# error, with the body on stderr. Only the 404 is tolerated; it is the race that broke a run
+# on 2026-09-28 (a second completion of T-1004's task, script exit under set -e).
+complete_user_task() { # TASK_KEY VARS_JSON
+  local out code body
+  out=$(curl -sS -w '\n%{http_code}' -u "$CAMUNDA_USER:$CAMUNDA_PASSWORD" \
+    -X POST "$BASE/user-tasks/$1/completion" -H 'Content-Type: application/json' -d "$2") || return 1
+  code=${out##*$'\n'}; body=${out%$'\n'*}
+  case "$code" in
+    2*)  return 0 ;;
+    404) return 2 ;;
+    *)   echo "error: completion of user task $1 returned HTTP $code: $body" >&2; return 1 ;;
+  esac
+}
+
 # Closes user tasks until each instance finishes. review-classification is closed for
 # ANY ticket where it appears (borderline LLM confidence can send any ticket to review —
 # design D5-2 note), keeping the current intent so the route is unchanged; only tickets
 # with expected.userTask get their scripted variables. Whether T-1004 actually visited
-# review is asserted by the path check in verify().
+# review is asserted by the path check in verify(). The task search reads secondary
+# storage, which lags the engine: a task completed in the previous iteration can still be
+# listed, so a task key already completed for this instance is skipped, and a 404 on the
+# completion is logged and waited out — both inside the TIMEOUT_SECONDS bound.
 complete_user_tasks() {
-  local id t key expected_element deadline state task task_key element vars intent_now
+  local id t key expected_element deadline state task task_key element vars intent_now done_key rc
   for id in $(ticket_ids); do
     t=$(ticket "$id")
     expected_element=$(echo "$t" | jq -r '.expected.userTask.elementId // empty')
     key=$(wait_for_instance "$id") || return 1
-    deadline=$((SECONDS + TIMEOUT_SECONDS))
+    deadline=$((SECONDS + TIMEOUT_SECONDS)); done_key=""
     while [ "$SECONDS" -lt "$deadline" ]; do
       state=$(instance_state_if_done "$key")
       [ -n "$state" ] && break
       task=$(open_user_task "$key")
       if [ -n "$task" ]; then
         task_key=${task%% *}; element=${task##* }
+        if [ "$task_key" = "$done_key" ]; then
+          sleep "$POLL_INTERVAL"; continue      # stale search result — already completed
+        fi
+        vars=""
         if [ "$element" = "review-classification" ]; then
           if [ "$expected_element" = "review-classification" ]; then
             vars=$(echo "$t" | jq -c '{variables: .expected.userTask.variables}')
@@ -192,8 +216,6 @@ complete_user_tasks() {
             vars=$(jq -cn --arg i "$intent_now" \
               '{variables: {intent: $i, needsReview: false, escalate: false}}')
           fi
-          api POST "/user-tasks/$task_key/completion" "$vars" > /dev/null
-          echo "completed user task review-classification for $id (taskKey $task_key)"
         elif [ "$element" = "handle-by-agent" ]; then
           if [ "$expected_element" = "handle-by-agent" ]; then
             vars=$(echo "$t" | jq -c '{variables: .expected.userTask.variables}')
@@ -201,8 +223,15 @@ complete_user_tasks() {
             echo "WARN: unexpected handle-by-agent for $id — closing it; verify judges by resolution"
             vars='{"variables":{"agentNote":"closed by e2e (unexpected escalation)"}}'
           fi
-          api POST "/user-tasks/$task_key/completion" "$vars" > /dev/null
-          echo "completed user task handle-by-agent for $id (taskKey $task_key)"
+        fi
+        if [ -n "$vars" ]; then
+          rc=0; complete_user_task "$task_key" "$vars" || rc=$?
+          case "$rc" in
+            0) echo "completed user task $element for $id (taskKey $task_key)" ;;
+            2) echo "user task $element for $id (taskKey $task_key) already completed — stale search, waiting for the instance" ;;
+            *) return 1 ;;
+          esac
+          done_key=$task_key
         fi
       fi
       sleep "$POLL_INTERVAL"
